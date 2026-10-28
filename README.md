@@ -139,7 +139,8 @@ pagina, puoi indicarlo nel servizio: `bwt_perla.py serve 03:12:00:2E:00:59`.
 python web.py                 # solo pagina, senza ricerca Bluetooth
 ```
 Mostra sale stimato, autonomia, consumo di oggi, rigenerazioni e i grafici per
-giorno, per ora e del sale nel tempo. Legge i CSV di `~/bwt-data` (opzione
+giorno (ultimi 30 giorni), per ora (a scelta: ultime 24 ore oppure ultimi 7
+giorni, con il totale del periodo) e del sale nel tempo. Legge i CSV di `~/bwt-data` (opzione
 `--data-dir`) e si aggiorna da sola ogni minuto; avvisa se la registrazione e'
 ferma da piu' di 45 minuti. Solo libreria standard (la ricerca Bluetooth di
 `serve` usa `bleak`), nessun accesso a internet.

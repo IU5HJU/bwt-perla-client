@@ -42,7 +42,7 @@ STATICI = {
 }
 MAX_PUNTI_SALE = 500
 GIORNI_MOSTRATI = 30
-ORE_MOSTRATE = 48
+ORE_MOSTRATE = 168      # 7 giorni di barre orarie
 MAX_BODY = 4096
 RABBOCCHI_MOSTRATI = 20
 MSG_NO_BLUETOOTH = ("Bluetooth non disponibile sul server: controlla che il servizio "
