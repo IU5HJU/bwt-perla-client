@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from config import carica_config, salva_config, valida_mac
 from tracker import (CICLI_CSV, QUARTI_CSV, Tracker, annulla_ultimo_rabbocco,
                      carica_rabbocchi, registra_rabbocco)
 
@@ -32,6 +33,8 @@ GIORNI_MOSTRATI = 30
 ORE_MOSTRATE = 48
 MAX_BODY = 4096
 RABBOCCHI_MOSTRATI = 20
+MSG_NO_BLUETOOTH = ("Bluetooth non disponibile sul server: controlla che il servizio "
+                    "bluetooth sia attivo e l'adattatore acceso (hciconfig).")
 
 
 def _leggi(path: Path) -> list[dict]:
@@ -49,7 +52,7 @@ def _num(v, tipo=float):
 
 
 def riepilogo(data_dir, now: datetime | None = None,
-              pin_richiesto: bool = False) -> dict:
+              pin_richiesto: bool = False, ble_disponibile: bool = False) -> dict:
     now = now or datetime.now()
     tr = Tracker(data_dir)
     cicli = _leggi(tr.dir / CICLI_CSV)
@@ -107,6 +110,8 @@ def riepilogo(data_dir, now: datetime | None = None,
         "rabbocchi": carica_rabbocchi(tr.dir)[-RABBOCCHI_MOSTRATI:],
         "capacita_kg": (tr.state["bc"]["capacita_g"] / 1000) if tr.state.get("bc") else None,
         "pin_richiesto": pin_richiesto,
+        "ble_disponibile": ble_disponibile,
+        "config": carica_config(tr.dir),
         "totali": {"litri": tr.state["litri_totali"],
                    "rigenerazioni": tr.state["rigenerazioni_totali"],
                    "blackout": tr.state["blackout_totali"]},
@@ -137,9 +142,14 @@ def parse_rabbocco(payload: dict) -> dict:
             "livello_prima": payload.get("livello_prima") or "sconosciuto"}
 
 
+class _ErroreBle(Exception):
+    pass
+
+
 class Handler(BaseHTTPRequestHandler):
     data_dir = "~/bwt-data"
     pin: str | None = None
+    ble = None      # PonteBle quando il server gira con `bwt_perla.py serve`
 
     def _invia(self, codice, tipo, corpo: bytes):
         self.send_response(codice)
@@ -154,8 +164,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             self._invia(200, "text/html; charset=utf-8", INDEX.read_bytes())
         elif path == "/api/riepilogo":
-            corpo = json.dumps(riepilogo(self.data_dir,
-                                         pin_richiesto=bool(self.pin))).encode()
+            corpo = json.dumps(riepilogo(self.data_dir, pin_richiesto=bool(self.pin),
+                                         ble_disponibile=self.ble is not None)).encode()
             self._invia(200, "application/json", corpo)
         elif path == "/healthz":
             self._invia(200, "text/plain", b"ok")
@@ -167,7 +177,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/rabbocco", "/api/rabbocco/annulla"):
+        if path not in ("/api/rabbocco", "/api/rabbocco/annulla", "/api/scan",
+                        "/api/verifica", "/api/config"):
             return self._json(404, {"errore": "non trovato"})
         # difese minime contro richieste da altre pagine web: tipo JSON
         # (un modulo di un altro sito non puo' inviarlo senza permesso CORS)
@@ -188,6 +199,21 @@ class Handler(BaseHTTPRequestHandler):
             if self.pin and not (isinstance(payload, dict) and hmac.compare_digest(
                     str(payload.get("pin", "")).encode(), self.pin.encode())):
                 return self._json(403, {"errore": "PIN errato"})
+            if not isinstance(payload, dict):
+                raise ValueError("richiesta non valida")
+            if path in ("/api/scan", "/api/verifica") and self.ble is None:
+                return self._json(501, {"errore": "scansione disponibile solo con "
+                                                  "«bwt_perla.py serve»"})
+            if path == "/api/scan":
+                return self._json(200, {"dispositivi": self._ble(self.ble.scan)})
+            if path == "/api/verifica":
+                mac = valida_mac(payload.get("mac"))
+                return self._json(200, {"dispositivo": self._ble(self.ble.verifica, mac)})
+            if path == "/api/config":
+                mac = valida_mac(payload.get("mac"))
+                cfg = (self.ble.salva_mac(mac) if self.ble is not None
+                       else salva_config(self.data_dir, mac=mac))
+                return self._json(200, {"ok": True, "config": cfg})
             if path.endswith("/annulla"):
                 return self._json(200, {"ok": True,
                                         "annullato": annulla_ultimo_rabbocco(self.data_dir)})
@@ -195,8 +221,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "rabbocco": rec})
         except (ValueError, TypeError) as e:
             return self._json(400, {"errore": str(e)})
+        except _ErroreBle as e:
+            return self._json(502, {"errore": str(e)})
+
+    @staticmethod
+    def _ble(funzione, *argomenti):
+        """Chiama il ponte Bluetooth: qualunque errore diventa un 502 leggibile."""
+        try:
+            return funzione(*argomenti)
+        except FileNotFoundError as e:    # nessun servizio/adattatore Bluetooth
+            raise _ErroreBle(MSG_NO_BLUETOOTH) from e
+        except Exception as e:
+            raise _ErroreBle(str(e) or e.__class__.__name__) from e
 
     def log_message(self, fmt, *args):   # niente rumore nel journal
+        pass
+
+
+def serve(host: str, port: int, data_dir: str, pin: str | None) -> None:
+    Handler.data_dir = data_dir
+    Handler.pin = pin or None
+    srv = ThreadingHTTPServer((host, port), Handler)
+    print(f"In ascolto su http://{host}:{port}  (dati: {data_dir})", flush=True)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
         pass
 
 
@@ -208,14 +257,7 @@ def main():
     ap.add_argument("--pin", default=None,
                     help="PIN richiesto per registrare/annullare un rabbocco")
     a = ap.parse_args()
-    Handler.data_dir = a.data_dir
-    Handler.pin = a.pin or None
-    srv = ThreadingHTTPServer((a.host, a.port), Handler)
-    print(f"In ascolto su http://{a.host}:{a.port}  (dati: {a.data_dir})", flush=True)
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    serve(a.host, a.port, a.data_dir, a.pin)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ python bwt_perla.py selftest
 python bwt_perla.py log 03:12:00:2E:00:59       # lettura ogni 15 min -> ~/bwt-data/
 python bwt_perla.py salt-refill 14              # registra un rabbocco di 14 kg
 python bwt_perla.py status                      # ultima riga registrata
+python bwt_perla.py serve                       # registrazione + pagina web insieme
 ```
 
 Prima di collegarti chiudi l'app BWT e disattiva il Bluetooth sugli altri
@@ -101,24 +102,59 @@ al boot vedi `deploy/bwt-perla-log.service`.
 
 Test: `python -m unittest discover -s tests`.
 
+## Un solo comando: `serve`
+
+```
+python bwt_perla.py serve        # poi apri http://IP-DEL-RASPBERRY:8765
+```
+Fa insieme la registrazione e la pagina web, senza altri strumenti. Al primo
+avvio la pagina chiede di scegliere l'addolcitore: **Impostazioni > Cerca
+addolcitore** mostra i dispositivi Bluetooth vicini (gli addolcitori BWT in
+alto), **Verifica** si collega in sola lettura e mostra firmware, serbatoio e
+sale per rigenerazione, **Usa questo addolcitore** salva la scelta in
+`config.json`. La registrazione la rilegge a ogni ciclo, quindi non servono
+riavvii. Un solo processo evita che scansione e lettura usino l'antenna insieme.
+
+L'addolcitore si riconosce dal dato del costruttore dell'annuncio Bluetooth
+(iBeacon con la scritta `BestWaterTechno`), verificato sull'apparecchio in uso.
+Provato solo su **AQAPERLA 5 BIO PR IT, firmware A22X V1.18**: altri modelli o
+firmware potrebbero non funzionare; la verifica avvisa se il firmware non e'
+tra quelli provati.
+
+Per l'avvio al boot: `deploy/bwt-perla.service` (un solo servizio). Chi usa
+gia' i due servizi separati puo' passare cosi':
+
+```
+sudo systemctl disable --now bwt-perla-log bwt-perla-web
+sudo cp deploy/bwt-perla.service /etc/systemd/system/   # poi sostituisci UTENTE
+sudo systemctl daemon-reload
+sudo systemctl enable --now bwt-perla
+```
+I dati in `~/bwt-data/` restano quelli. Se non scegli l'addolcitore dalla
+pagina, puoi indicarlo nel servizio: `bwt_perla.py serve 03:12:00:2E:00:59`.
+
 ## Pagina web (rete locale)
 
 ```
-python web.py                 # poi apri http://IP-DEL-RASPBERRY:8765
+python web.py                 # solo pagina, senza ricerca Bluetooth
 ```
 Mostra sale stimato, autonomia, consumo di oggi, rigenerazioni e i grafici per
 giorno, per ora e del sale nel tempo. Legge i CSV di `~/bwt-data` (opzione
 `--data-dir`) e si aggiorna da sola ogni minuto; avvisa se la registrazione e'
-ferma da piu' di 45 minuti. Solo libreria standard, nessun accesso a internet.
+ferma da piu' di 45 minuti. Solo libreria standard (la ricerca Bluetooth di
+`serve` usa `bleak`), nessun accesso a internet.
 
 La porta predefinita e' 8765 (`--port` per cambiarla): controlla prima che sia libera
 con `sudo ss -tlnp`.
 
-**Sicurezza:** la pagina legge soltanto, salvo registrare o annullare un
-rabbocco. Non ha password: usala solo in rete locale, non esporla a internet.
-Con `--pin 1234` registrare e annullare chiedono il PIN (i dati restano visibili a
-tutti). Le richieste di scrittura accettano solo JSON dallo stesso sito. Per l'avvio al boot: `deploy/bwt-perla-web.service`.
-L'API JSON e' su `/api/riepilogo`.
+**Sicurezza:** la pagina legge, e le azioni che scrivono sono solo la
+registrazione e l'annullamento di un rabbocco, la scelta dell'addolcitore e
+la ricerca/verifica Bluetooth. Non ha password: usala solo in rete locale, non
+esporla a internet. Con `--pin 1234` tutte queste azioni chiedono il PIN (i
+dati restano visibili a tutti). Le richieste di scrittura accettano solo JSON
+dallo stesso sito; la ricerca mostra anche dispositivi altrui, ma ci si
+collega solo a quello scelto da te. Per l'avvio al boot della sola pagina:
+`deploy/bwt-perla-web.service`. L'API JSON e' su `/api/riepilogo`.
 
 ## Stato
 
