@@ -48,12 +48,15 @@ Test: `python -m unittest discover -s tests`.
 ## Pagina web (rete locale)
 
 ```
-python web.py                 # poi apri http://IP-DEL-RASPBERRY:8080
+python web.py                 # poi apri http://IP-DEL-RASPBERRY:8765
 ```
 Mostra sale stimato, autonomia, consumo di oggi, rigenerazioni e i grafici per
 giorno, per ora e del sale nel tempo. Legge i CSV di `~/bwt-data` (opzione
 `--data-dir`) e si aggiorna da sola ogni minuto; avvisa se la registrazione e'
 ferma da piu' di 45 minuti. Solo libreria standard, nessun accesso a internet.
+
+La porta predefinita e' 8765 (`--port` per cambiarla): controlla prima che sia libera
+con `sudo ss -tlnp`.
 
 **Sicurezza:** sola lettura e senza password. Usala solo in rete locale, non
 esporla a internet. Per l'avvio al boot: `deploy/bwt-perla-web.service`.

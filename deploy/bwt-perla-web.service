@@ -9,8 +9,8 @@ After=network.target
 
 [Service]
 User=UTENTE
-WorkingDirectory=/home/UTENTE/iu5hju-bwt-perla-client
-ExecStart=/home/UTENTE/iu5hju-bwt-perla-client/.venv/bin/python web.py --port 8080
+WorkingDirectory=/home/UTENTE/bwt-perla-client
+ExecStart=/home/UTENTE/bwt-perla-client/.venv/bin/python web.py --port 8765
 Restart=on-failure
 RestartSec=60
 

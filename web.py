@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Pagina web locale per monitorare l'addolcitore (solo libreria standard).
 
-  python web.py                      # http://IP-DEL-RASPBERRY:8080
-  python web.py --port 8080 --data-dir ~/bwt-data
+  python web.py                      # http://IP-DEL-RASPBERRY:8765
+  python web.py --port 8765 --data-dir ~/bwt-data
 
 Legge i CSV scritti da `bwt_perla.py log`: sola lettura, nessuna
 autenticazione. Da usare solo in rete locale, mai esposta a internet.
@@ -132,7 +132,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser(description="Pagina web BWT Perla")
-    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--data-dir", default="~/bwt-data")
     a = ap.parse_args()
