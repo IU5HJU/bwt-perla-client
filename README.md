@@ -22,7 +22,9 @@ python bwt_perla.py status                      # ultima riga registrata
 
 Prima di collegarti chiudi l'app BWT e disattiva il Bluetooth sugli altri
 telefoni: con una connessione attiva l'addolcitore non è più visibile.
-Il segnale è debole (~ -80 dBm): tieni l'adattatore entro pochi metri.
+Il segnale è debole (~ -80 dBm): tieni l'adattatore entro pochi metri. La radio
+dell'apparecchio ha poca portata di suo: `log` riprova una lettura fallita 3 volte,
+a 30 secondi l'una dall'altra, prima di rimandarla al ciclo successivo.
 
 ## Rabbocco del sale e stima
 

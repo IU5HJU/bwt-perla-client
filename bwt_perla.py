@@ -195,13 +195,30 @@ async def ciclo(mac: str, tr: Tracker) -> dict:
     return tr.applica(datetime.now(), b, raw, q, d)
 
 
+async def ciclo_con_tentativi(mac, tr, tentativi=3, pausa=30, fn=None):
+    """La radio dell'apparecchio ha poca portata: una lettura fallita si
+    riprova dopo `pausa` secondi invece di aspettare il ciclo successivo.
+    I dati si registrano solo a lettura riuscita (vedi `ciclo`), quindi un
+    nuovo tentativo non conta nulla due volte."""
+    fn = fn or ciclo
+    for n in range(1, tentativi + 1):
+        try:
+            return await fn(mac, tr)
+        except Exception as e:
+            if n == tentativi:
+                raise
+            print(f"{datetime.now():%H:%M:%S}  tentativo {n}/{tentativi} fallito: "
+                  f"{e!r}; riprovo tra {pausa} s", flush=True)
+            await asyncio.sleep(pausa)
+
+
 async def cmd_log(mac, data_dir, interval, once):
     addr = await find(mac)
     tr = Tracker(data_dir)
     print(f"Registro in {tr.dir} ogni {interval} s (Ctrl+C per fermare)")
     while True:
         try:
-            r = await ciclo(addr, tr)
+            r = await ciclo_con_tentativi(addr, tr)
             print(f"{r['timestamp']}  +{r['litri_nuovi']} L  tot {r['litri_totali']} L  "
                   f"rigen {r['rigenerazioni_totali']}  sale stimato "
                   f"{r['sale_stimato_g'] or '-'} g  autonomia {r['autonomia_giorni'] or '-'} gg",
