@@ -2,7 +2,14 @@
 
 L'addolcitore del modello in uso riporta sempre 0 g di sale (come la vecchia
 app): il residuo e' quindi stimato come
-    sale messo - rigenerazioni dal rabbocco * g per rigenerazione.
+    kg dopo il rabbocco - rigenerazioni dal rabbocco * g per rigenerazione.
+
+Ogni rabbocco e' una misura reale: tra due rabbocchi si conoscono le
+rigenerazioni avvenute e i kg rimessi, da cui si ricavano il consumo reale per
+rigenerazione e il livello di "riserva" (quando si vede l'acqua di salamoia
+sul fondo e si rabbocca). I rabbocchi stanno in `rabbocchi.json`, un file a
+parte: il servizio di registrazione riscrive `state.json` a ogni ciclo e
+cancellerebbe le modifiche fatte da un altro processo (CLI o pagina web).
 
 Licenza GPLv3, come il resto del progetto.
 """
@@ -19,6 +26,14 @@ QUARTO = timedelta(minutes=15)
 CICLI_CSV = "cicli.csv"
 QUARTI_CSV = "quarti.csv"
 STATE_JSON = "state.json"
+RABBOCCHI_JSON = "rabbocchi.json"
+
+LIVELLI = ("abbondante", "riserva", "sconosciuto")
+RISERVA_PROVVISORIA = 0.25   # frazione del serbatoio, finche' non c'e' una misura
+GIORNI_AVVISO = 7            # preavviso prima di arrivare in riserva
+MIN_RIGEN_CICLO = 3          # rigenerazioni minime per fidarsi di un ciclo
+FATTORE_PLAUSIBILE = (0.3, 3.0)   # consumo misurato / nominale ammesso
+KG_MAX = 200
 
 CICLI_COLONNE = [
     "timestamp", "idx_quarti", "idx_giorni", "broadcast_hex",
@@ -34,8 +49,15 @@ def _stato_iniziale() -> dict:
     return {
         "last_idx": None, "prev_rege": False, "prev_black": False,
         "litri_totali": 0, "rigenerazioni_totali": 0, "blackout_totali": 0,
-        "rabbocco": None,
+        "bc": None,     # ultimi parametri letti dall'apparecchio
     }
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _scrivi_righe(path: Path, colonne: list[str], righe: list[dict]) -> None:
@@ -45,6 +67,179 @@ def _scrivi_righe(path: Path, colonne: list[str], righe: list[dict]) -> None:
         if nuovo:
             w.writeheader()
         w.writerows(righe)
+
+
+def _leggi_json(path: Path, default):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def _scrivi_json(path: Path, dati) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(dati, indent=2))
+    tmp.replace(path)
+
+
+def carica_rabbocchi(data_dir) -> list[dict]:
+    """Rabbocchi in ordine cronologico. Importa quello registrato dalle
+    versioni precedenti (chiave `rabbocco` di state.json), se c'e'."""
+    d = Path(data_dir).expanduser()
+    p = d / RABBOCCHI_JSON
+    if p.exists():
+        return _leggi_json(p, [])
+    vecchio = _leggi_json(d / STATE_JSON, {}).get("rabbocco")
+    if not vecchio:
+        return []
+    lista = [{
+        "data": vecchio["data"], "kg_dopo": vecchio["kg"], "kg_aggiunti": None,
+        "livello_prima": "sconosciuto",
+        "rigenerazioni_totali": vecchio["rigenerazioni_al_rabbocco"],
+    }]
+    d.mkdir(parents=True, exist_ok=True)
+    _scrivi_json(p, lista)
+    return lista
+
+
+def registra_rabbocco(data_dir, kg_dopo=None, kg_aggiunti=None,
+                      livello_prima="sconosciuto", rigen_gia_usate=0,
+                      now=None) -> dict:
+    """Aggiunge un rabbocco. Legge lo stato da disco (non da una copia in
+    memoria), cosi' funziona anche mentre il servizio di registrazione gira.
+
+    kg_dopo: kg nel serbatoio dopo il rabbocco (None = pieno, cioe' la
+    capacita' letta dall'apparecchio). kg_aggiunti: kg versati, serve alla
+    calibrazione. rigen_gia_usate: rigenerazioni gia' avvenute dal rabbocco
+    reale, se registrato in ritardo."""
+    d = Path(data_dir).expanduser()
+    d.mkdir(parents=True, exist_ok=True)
+    stato = _leggi_json(d / STATE_JSON, {})
+    if kg_dopo is None:
+        capa = (stato.get("bc") or {}).get("capacita_g")
+        if not capa:
+            raise ValueError("capacita' sconosciuta: indica i kg nel serbatoio")
+        kg_dopo = capa / 1000
+    if not 0 < kg_dopo <= KG_MAX:
+        raise ValueError("kg nel serbatoio non validi")
+    if kg_aggiunti is not None:
+        if not 0 <= kg_aggiunti <= KG_MAX:
+            raise ValueError("kg aggiunti non validi")
+        if kg_aggiunti > kg_dopo:
+            raise ValueError("i kg aggiunti superano quelli nel serbatoio")
+    if livello_prima not in LIVELLI:
+        raise ValueError("livello prima del rabbocco non valido")
+    if rigen_gia_usate < 0:
+        raise ValueError("rigenerazioni gia' usate non valide")
+    now = now or datetime.now()
+    rec = {
+        "data": now.isoformat(timespec="seconds"),
+        "kg_dopo": round(float(kg_dopo), 2),
+        "kg_aggiunti": None if kg_aggiunti is None else round(float(kg_aggiunti), 2),
+        "livello_prima": livello_prima,
+        "rigenerazioni_totali": stato.get("rigenerazioni_totali", 0) - rigen_gia_usate,
+    }
+    lista = carica_rabbocchi(d)
+    lista.append(rec)
+    _scrivi_json(d / RABBOCCHI_JSON, lista)
+    return rec
+
+
+def annulla_ultimo_rabbocco(data_dir) -> dict:
+    d = Path(data_dir).expanduser()
+    lista = carica_rabbocchi(d)
+    if not lista:
+        raise ValueError("nessun rabbocco da annullare")
+    tolto = lista.pop()
+    _scrivi_json(d / RABBOCCHI_JSON, lista)
+    return tolto
+
+
+def cicli_rabbocco(rabbocchi: list[dict]) -> list[dict]:
+    """Un ciclo per ogni coppia di rabbocchi consecutivi in cui il secondo ha
+    i kg aggiunti: consumato = livello dopo il primo - livello prima del
+    secondo, dove livello prima = kg_dopo - kg_aggiunti."""
+    cicli = []
+    for a, b in zip(rabbocchi, rabbocchi[1:]):
+        agg = b.get("kg_aggiunti")
+        if agg is None:
+            continue
+        residuo = b["kg_dopo"] - agg
+        cicli.append({
+            "rigenerazioni": b["rigenerazioni_totali"] - a["rigenerazioni_totali"],
+            "consumato_kg": a["kg_dopo"] - residuo,
+            "residuo_kg": residuo,
+            "livello_prima": b.get("livello_prima"),
+        })
+    return cicli
+
+
+def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
+    """Stato del sale. None se non c'e' nessun rabbocco.
+
+    - g per rigenerazione: misurato sui cicli plausibili (almeno
+      MIN_RIGEN_CICLO rigenerazioni, entro FATTORE_PLAUSIBILE del valore
+      dichiarato) o, in mancanza, quello dichiarato dall'apparecchio;
+    - riserva: media dei residui ai rabbocchi fatti "in riserva", o una
+      frazione provvisoria del serbatoio;
+    - stato: riserva / avviso (a meno di GIORNI_AVVISO dalla riserva) / ok.
+    """
+    if not rabbocchi:
+        return None
+    ultimo = rabbocchi[-1]
+    cicli = cicli_rabbocco(rabbocchi)
+    def plausibile(c):
+        if c["rigenerazioni"] < MIN_RIGEN_CICLO or c["consumato_kg"] <= 0:
+            return False
+        if not g_nominale:
+            return True
+        rapporto = c["consumato_kg"] * 1000 / c["rigenerazioni"] / g_nominale
+        return FATTORE_PLAUSIBILE[0] <= rapporto <= FATTORE_PLAUSIBILE[1]
+
+    validi = [c for c in cicli if plausibile(c)]
+    g_calibrato = bool(validi)
+    g_rig = (sum(c["consumato_kg"] for c in validi) * 1000
+             / sum(c["rigenerazioni"] for c in validi)) if validi else g_nominale
+
+    rig_dal = rigen_totali - ultimo["rigenerazioni_totali"]
+    residuo_g = max(0.0, ultimo["kg_dopo"] * 1000 - rig_dal * g_rig)
+
+    riserve = [c["residuo_kg"] for c in cicli
+               if c["livello_prima"] == "riserva" and c["residuo_kg"] >= 0]
+    riserva_calibrata = bool(riserve)
+    riserva_g = (sum(riserve) / len(riserve) * 1000 if riserve
+                 else RISERVA_PROVVISORIA * ultimo["kg_dopo"] * 1000)
+
+    uso_giorno_g = rate * g_rig if rate and g_rig else None
+    giorni_riserva = ((residuo_g - riserva_g) / uso_giorno_g
+                      if uso_giorno_g else None)
+    if giorni_riserva is not None:
+        giorni_riserva = max(0, round(giorni_riserva))
+    giorni_esaurimento = round(residuo_g / uso_giorno_g) if uso_giorno_g else None
+
+    if residuo_g <= riserva_g:
+        stato = "riserva"
+    elif giorni_riserva is not None and giorni_riserva <= GIORNI_AVVISO:
+        stato = "avviso"
+    else:
+        stato = "ok"
+    capa = capa_g or ultimo["kg_dopo"] * 1000
+    return {
+        "stato": stato,
+        "residuo_g": int(residuo_g),
+        "pct": min(100, round(residuo_g * 100 / capa)) if capa else None,
+        "riserva_g": int(riserva_g),
+        "riserva_calibrata": riserva_calibrata,
+        "g_per_rigenerazione": round(g_rig),
+        "g_calibrato": g_calibrato,
+        "rigenerazioni_dal_rabbocco": rig_dal,
+        "giorni_a_riserva": giorni_riserva,
+        "giorni_a_esaurimento": giorni_esaurimento,
+        "rabbocco_data": ultimo["data"],
+        "rabbocco_kg": ultimo["kg_dopo"],
+        "cicli_misurati": len(validi),
+        "cicli_scartati": len(cicli) - len(validi),
+    }
 
 
 class Tracker:
@@ -63,18 +258,21 @@ class Tracker:
 
     # ── rabbocco ────────────────────────────────────────────────────
 
-    def rabbocco(self, kg: float, rigen_gia_usate: int = 0, now=None) -> dict:
-        """Registra un rabbocco. `rigen_gia_usate`: rigenerazioni gia'
-        avvenute dal rabbocco reale, se questo e' stato fatto prima."""
-        now = now or datetime.now()
-        self.state["rabbocco"] = {
-            "data": now.isoformat(timespec="seconds"),
-            "kg": kg,
-            "rigenerazioni_al_rabbocco":
-                self.state["rigenerazioni_totali"] - rigen_gia_usate,
-        }
-        self._salva()
-        return self.state["rabbocco"]
+    def rabbocco(self, kg_dopo=None, rigen_gia_usate: int = 0, now=None,
+                 kg_aggiunti=None, livello_prima="sconosciuto") -> dict:
+        return registra_rabbocco(self.dir, kg_dopo, kg_aggiunti, livello_prima,
+                                 rigen_gia_usate, now)
+
+    def analisi(self, rate=None):
+        bc = self.state.get("bc")
+        if not bc:
+            return None
+        if rate is None:
+            u = self.ultima_riga()
+            rate = _num(u["rigenerazioni_al_giorno_30g"]) if u else None
+        return analisi_sale(carica_rabbocchi(self.dir),
+                            self.state["rigenerazioni_totali"],
+                            bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
 
     # ── ciclo di lettura ────────────────────────────────────────────
 
@@ -101,6 +299,8 @@ class Tracker:
         s["rigenerazioni_totali"] += rigen
         s["blackout_totali"] += black
         s["last_idx"] = bc["idx_quarti"]
+        s["bc"] = {"capacita_g": bc["capacita_g"],
+                   "sale_per_rigenerazione_g": bc["sale_per_rigenerazione_g"]}
 
         # Inizio approssimato dei quarti: l'orologio dell'apparecchio non e'
         # noto, quindi si assume che l'ultimo quarto sia finito all'ultimo
@@ -143,19 +343,14 @@ class Tracker:
         return riga
 
     def stima_sale(self, bc: dict, rate: float | None):
-        """-> (grammi, percentuale, giorni di autonomia); None se nessun rabbocco."""
-        r = self.state["rabbocco"]
-        if not r:
+        """-> (grammi, percentuale, giorni all'esaurimento teorico);
+        None se nessun rabbocco."""
+        a = analisi_sale(carica_rabbocchi(self.dir),
+                         self.state["rigenerazioni_totali"],
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
+        if a is None:
             return None, None, None
-        usate = self.state["rigenerazioni_totali"] - r["rigenerazioni_al_rabbocco"]
-        g_rege = bc["sale_per_rigenerazione_g"]
-        sale = max(0, int(r["kg"] * 1000 - usate * g_rege))
-        capa = bc["capacita_g"] or int(r["kg"] * 1000)
-        pct = min(100, round(sale * 100 / capa)) if capa else None
-        autonomia = None
-        if rate and g_rege:
-            autonomia = round(sale / (rate * g_rege))
-        return sale, pct, autonomia
+        return a["residuo_g"], a["pct"], a["giorni_a_esaurimento"]
 
     def ultima_riga(self) -> dict | None:
         p = self.dir / CICLI_CSV
