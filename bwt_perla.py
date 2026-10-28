@@ -9,6 +9,7 @@ Uso:
   python bwt_perla.py log [MAC]         # lettura periodica -> CSV in ~/bwt-data
   python bwt_perla.py salt-refill KG    # registra un rabbocco (vedi --help)
   python bwt_perla.py status            # ultima riga registrata
+  python bwt_perla.py serve             # registrazione + pagina web in un solo processo
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
 questo file ne eredita la licenza (GPLv3).
@@ -18,10 +19,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import threading
 from datetime import datetime
 
 from bleak import BleakClient, BleakScanner
 
+from config import carica_config, salva_config, valida_mac
 from tracker import Tracker
 
 U_SERVICE = "d973f2e0-b19e-11e2-9e96-0800200c9a66"
@@ -29,6 +32,16 @@ U_NOTIFY = "d973f2e1-b19e-11e2-9e96-0800200c9a66"     # storico (notify)
 U_WRITE = "d973f2e2-b19e-11e2-9e96-0800200c9a66"      # comandi
 U_BROADCAST = "d973f2e3-b19e-11e2-9e96-0800200c9a66"  # sale + indici
 U_AUTH = "d973f2e4-b19e-11e2-9e96-0800200c9a66"       # lettura = "auth"
+
+# L'apparecchio si annuncia come iBeacon: dato del costruttore (ID Apple 76)
+# = 02 15 + UUID, che qui e' la scritta "BestWaterTechno" + un byte zero.
+# Verificato sull'apparecchio in uso; il servizio D973F2E0 non compare nella
+# pubblicita', solo dopo la connessione.
+RECO_BWT = b"BestWaterTechno"
+
+# Firmware su cui il client e' stato provato; altri potrebbero comportarsi
+# diversamente (per esempio i V2.x riportano il sale moltiplicato per 4).
+FIRMWARE_TESTATI = ("A22X V1.18",)
 
 ADDR_QUARTI, ADDR_GIORNI = 0, 6400
 MAX_QUARTI, MAX_GIORNI = 2880, 1825
@@ -140,27 +153,70 @@ class Perla:
         return res[:n]
 
 
+def is_bwt(adv) -> bool:
+    """True se la pubblicita' e' quella di un addolcitore BWT."""
+    if U_SERVICE in [u.lower() for u in adv.service_uuids]:
+        return True
+    return any(RECO_BWT in bytes(v) for v in adv.manufacturer_data.values())
+
+
+async def scansiona(timeout: float = 8.0) -> list[dict]:
+    """Dispositivi BLE nelle vicinanze, gli addolcitori BWT per primi."""
+    found = await BleakScanner.discover(timeout=timeout, return_adv=True)
+    out = [{"mac": a.upper(), "nome": d.name or adv.local_name or "",
+            "rssi": adv.rssi, "bwt": is_bwt(adv)} for a, (d, adv) in found.items()]
+    return sorted(out, key=lambda x: (not x["bwt"], -x["rssi"]))
+
+
+async def verifica(mac: str) -> dict:
+    """Si collega in sola lettura e legge il BROADCAST: serve a controllare che
+    sia davvero un addolcitore BWT e a mostrarne i dati prima di usarlo."""
+    mac = valida_mac(mac)
+    try:
+        async with BleakClient(mac, timeout=30) as cl:
+            p = Perla(cl)
+            await p.open()
+            raw = await p.broadcast()
+    except FileNotFoundError as e:
+        raise RuntimeError("Bluetooth non disponibile sul server: controlla che il "
+                           "servizio bluetooth sia attivo e l'adattatore acceso "
+                           "(hciconfig).") from e
+    except Exception as e:
+        raise RuntimeError(f"connessione o lettura non riuscita: {e}") from e
+    try:
+        b = decode_broadcast(raw)
+    except ValueError as e:
+        raise RuntimeError(f"risposta non riconosciuta: {e}") from e
+    return {"mac": mac, "firmware": b["firmware"],
+            "capacita_kg": b["capacita_g"] / 1000,
+            "sale_per_rigenerazione_g": b["sale_per_rigenerazione_g"],
+            "allarme_sale": b["allarme_sale"],
+            "testato": b["firmware"] in FIRMWARE_TESTATI}
+
+
 async def find(mac: str | None) -> str:
+    """MAC dato, oppure il primo addolcitore BWT trovato. LookupError se manca."""
     if mac:
         return mac
-    print("Scansione (10 s)...")
-    found = await BleakScanner.discover(timeout=10, return_adv=True)
-    for addr, (d, adv) in found.items():
-        if U_SERVICE in [u.lower() for u in adv.service_uuids]:
-            print(f"Trovato: {addr}  rssi={adv.rssi}")
-            return addr
-    raise SystemExit("Addolcitore non trovato: chiudi l'app BWT / avvicinati.")
+    print("Scansione (8 s)...")
+    for d in await scansiona():
+        if d["bwt"]:
+            print(f"Trovato: {d['mac']}  rssi={d['rssi']}")
+            return d["mac"]
+    raise LookupError("Addolcitore non trovato: chiudi l'app BWT / avvicinati.")
 
 
 async def cmd_scan():
-    found = await BleakScanner.discover(timeout=10, return_adv=True)
-    for addr, (d, adv) in sorted(found.items(), key=lambda x: -x[1][1].rssi):
-        tag = "  <== BWT" if U_SERVICE in [u.lower() for u in adv.service_uuids] else ""
-        print(f"{addr}  {adv.rssi:4} dBm  {d.name or '-'}{tag}")
+    for d in await scansiona(10):
+        tag = "  <== BWT" if d["bwt"] else ""
+        print(f"{d['mac']}  {d['rssi']:4} dBm  {d['nome'] or '-'}{tag}")
 
 
 async def cmd_read(mac, dump=False):
-    addr = await find(mac)
+    try:
+        addr = await find(mac)
+    except LookupError as e:
+        raise SystemExit(str(e))
     async with BleakClient(addr, timeout=30) as cl:
         p = Perla(cl)
         await p.open()
@@ -212,13 +268,52 @@ async def ciclo_con_tentativi(mac, tr, tentativi=3, pausa=30, fn=None):
             await asyncio.sleep(pausa)
 
 
-async def cmd_log(mac, data_dir, interval, once):
-    addr = await find(mac)
+async def _attendi(evento: asyncio.Event, secondi: float) -> None:
+    """Pausa interrompibile: la configurazione dalla pagina web sveglia il ciclo."""
+    try:
+        await asyncio.wait_for(evento.wait(), secondi)
+    except asyncio.TimeoutError:
+        pass
+    evento.clear()
+
+
+async def logger(mac_cli, data_dir, interval, once=False, lock=None,
+                 evento=None, scansione_automatica=True):
+    """Ciclo di registrazione. L'addolcitore e' quello dato a riga di comando,
+    altrimenti quello in config.json (riletto a ogni ciclo, quindi cambia dalla
+    pagina web senza riavvii), altrimenti, se consentito, il primo BWT trovato."""
     tr = Tracker(data_dir)
-    print(f"Registro in {tr.dir} ogni {interval} s (Ctrl+C per fermare)")
+    lock = lock or asyncio.Lock()
+    evento = evento or asyncio.Event()
+    mac_auto, avvisato = None, False
+    print(f"Registro in {tr.dir} ogni {interval} s (Ctrl+C per fermare)", flush=True)
+
+    async def ciclo_in_esclusiva(m, t):      # un solo uso dell'antenna alla volta
+        async with lock:
+            return await ciclo(m, t)
+
     while True:
+        mac = mac_cli or carica_config(data_dir).get("mac") or mac_auto
+        if not mac and scansione_automatica:
+            try:
+                async with lock:
+                    mac = mac_auto = await find(None)
+            except LookupError as e:
+                print(e, flush=True)
+        if not mac:
+            if not avvisato:
+                print("Nessun addolcitore configurato: aprire la pagina web e "
+                      "usare Impostazioni > Cerca addolcitore.", flush=True)
+                avvisato = True
+            await _attendi(evento, 30 if not once else 0)
+            if once:
+                raise SystemExit(1)
+            continue
+        avvisato = False
         try:
-            r = await ciclo_con_tentativi(addr, tr)
+            if tr.dispositivo(mac):
+                print(f"Addolcitore cambiato ({mac}): riparto da adesso.", flush=True)
+            r = await ciclo_con_tentativi(mac, tr, fn=ciclo_in_esclusiva)
             print(f"{r['timestamp']}  +{r['litri_nuovi']} L  tot {r['litri_totali']} L  "
                   f"rigen {r['rigenerazioni_totali']}  sale stimato "
                   f"{r['sale_stimato_g'] or '-'} g  autonomia {r['autonomia_giorni'] or '-'} gg",
@@ -229,7 +324,53 @@ async def cmd_log(mac, data_dir, interval, once):
                 raise SystemExit(1)
         if once:
             return
-        await asyncio.sleep(interval)
+        await _attendi(evento, interval)
+
+
+async def cmd_log(mac, data_dir, interval, once):
+    await logger(mac, data_dir, interval, once)
+
+
+class PonteBle:
+    """Ponte tra la pagina web (thread HTTP) e il ciclo asyncio che possiede
+    l'antenna: scansione e verifica passano dallo stesso blocco della
+    registrazione, cosi' non si pestano i piedi."""
+
+    def __init__(self, loop, lock, evento, data_dir):
+        self.loop, self.lock, self.evento, self.data_dir = loop, lock, evento, data_dir
+
+    def _esegui(self, coro, timeout):
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout)
+
+    def scan(self) -> list[dict]:
+        async def _s():
+            async with self.lock:
+                return await scansiona()
+        return self._esegui(_s(), 60)
+
+    def verifica(self, mac: str) -> dict:
+        async def _v():
+            async with self.lock:
+                return await verifica(mac)
+        return self._esegui(_v(), 90)
+
+    def salva_mac(self, mac: str) -> dict:
+        cfg = salva_config(self.data_dir, mac=mac)
+        self.loop.call_soon_threadsafe(self.evento.set)   # riparte subito
+        return cfg
+
+
+def cmd_serve(mac, data_dir, interval, host, port, pin):
+    """Registrazione e pagina web in un solo processo (un solo servizio)."""
+    import web
+    loop = asyncio.new_event_loop()
+    lock, evento = asyncio.Lock(), asyncio.Event()
+    threading.Thread(target=loop.run_forever, daemon=True, name="ble").start()
+    asyncio.run_coroutine_threadsafe(
+        logger(mac, data_dir, interval, False, lock, evento, scansione_automatica=False),
+        loop)
+    web.Handler.ble = PonteBle(loop, lock, evento, data_dir)
+    web.serve(host, port, data_dir, pin)
 
 
 def cmd_salt_refill(kg_dopo, aggiunti, livello, used_regens, data_dir):
@@ -293,6 +434,12 @@ def main():
     lg.add_argument("mac", nargs="?")
     lg.add_argument("--interval", type=int, default=900, help="secondi (def. 900)")
     lg.add_argument("--once", action="store_true", help="una sola lettura")
+    sv = sub.add_parser("serve", help="registrazione + pagina web")
+    sv.add_argument("mac", nargs="?", help="se omesso: quello di config.json")
+    sv.add_argument("--interval", type=int, default=900)
+    sv.add_argument("--host", default="0.0.0.0")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--pin", default=None, help="PIN per le azioni che scrivono")
     rf = sub.add_parser("salt-refill")
     rf.add_argument("kg", type=float,
                     help="kg nel serbatoio DOPO il rabbocco (es. 14 se pieno)")
@@ -313,6 +460,11 @@ def main():
     elif a.cmd == "log":
         try:
             asyncio.run(cmd_log(a.mac, a.data_dir, a.interval, a.once))
+        except KeyboardInterrupt:
+            pass
+    elif a.cmd == "serve":
+        try:
+            cmd_serve(a.mac, a.data_dir, a.interval, a.host, a.port, a.pin)
         except KeyboardInterrupt:
             pass
     elif a.cmd == "salt-refill":

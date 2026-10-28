@@ -1,0 +1,24 @@
+# Un solo servizio: registrazione + pagina web (consigliato).
+# Installazione (sostituisci UTENTE e il percorso se diversi):
+#   sudo cp deploy/bwt-perla.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bwt-perla
+#   journalctl -u bwt-perla -f
+# L'addolcitore si sceglie dalla pagina web (Impostazioni > Cerca addolcitore)
+# oppure si indica qui: ... bwt_perla.py serve 03:12:00:2E:00:59 --port 8765
+[Unit]
+Description=BWT Perla - registrazione e pagina web
+After=bluetooth.target network.target
+Wants=bluetooth.target
+
+[Service]
+User=UTENTE
+WorkingDirectory=/home/UTENTE/bwt-perla-client
+# "+" = eseguito come root (serve per accendere il Bluetooth), "-" = errore ignorato
+ExecStartPre=-+/bin/sh -c 'rfkill unblock bluetooth; hciconfig hci0 up'
+ExecStart=/home/UTENTE/bwt-perla-client/.venv/bin/python bwt_perla.py serve --port 8765
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -312,6 +312,20 @@ class Tracker:
         tmp.write_text(json.dumps(self.state, indent=2))
         tmp.replace(self.state_path)
 
+    def dispositivo(self, mac: str) -> bool:
+        """Associa lo stato a un addolcitore. Se cambia, l'indice dei quarti
+        d'ora dell'altro apparecchio non vale piu': si riparte da adesso, senza
+        contare il passato. -> True se e' cambiato."""
+        precedente = self.state.get("mac")
+        if precedente == mac:
+            return False
+        self.state["mac"] = mac
+        cambiato = precedente is not None
+        if cambiato:
+            self.state.update(last_idx=None, prev_rege=False, prev_black=False)
+        self._salva()
+        return cambiato
+
     # ── rabbocco ────────────────────────────────────────────────────
 
     def rabbocco(self, kg_dopo=None, rigen_gia_usate: int = 0, now=None,

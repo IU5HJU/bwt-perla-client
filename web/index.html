@@ -128,6 +128,25 @@
     <svg id="g-sale" viewBox="0 0 640 180" role="img" aria-label="Sale stimato"></svg>
   </section>
 
+  <details id="imp">
+    <summary>Impostazioni · addolcitore</summary>
+    <p class="muted" id="imp-attuale"></p>
+    <p class="muted" id="imp-nota" hidden>La ricerca Bluetooth è disponibile solo se il
+    server è avviato con «python bwt_perla.py serve».</p>
+    <div class="azioni"><button id="btn-scan">Cerca addolcitore</button></div>
+    <div class="muted" id="imp-stato"></div>
+    <table class="tab" id="tab-scan"></table>
+    <details id="imp-altri" hidden>
+      <summary>Altri dispositivi Bluetooth (<span id="n-altri">0</span>)</summary>
+      <table class="tab" id="tab-altri"></table>
+    </details>
+    <div class="card" id="imp-verifica" hidden></div>
+    <div class="errore" id="imp-err"></div>
+    <p class="muted">Provato solo su AQAPERLA 5 BIO PR IT, firmware A22X V1.18. Altri
+    modelli o firmware potrebbero non funzionare o dare valori diversi. Il dispositivo
+    viene scelto solo da te: la verifica legge soltanto, non modifica nulla.</p>
+  </details>
+
   <details>
     <summary>Storico rabbocchi</summary>
     <table class="tab" id="tab-rabbocchi"></table>
@@ -263,7 +282,12 @@ function mostra(d) {
   const av = $("avviso");
   if (!u) {
     av.hidden = false;
-    av.textContent = "Nessun dato: avvia la registrazione con «python bwt_perla.py log».";
+    av.textContent = (d.ble_disponibile && !d.config.mac)
+      ? "Nessun addolcitore configurato: apri «Impostazioni» e cerca l'addolcitore."
+      : "Nessun dato: avvia la registrazione con «python bwt_perla.py serve» (o «log»).";
+    if (d.ble_disponibile && !d.config.mac && !$("imp").open) {
+      $("imp").open = true; $("imp").scrollIntoView({block: "center"});
+    }
   } else if (d.eta_ultima_lettura_min > 45) {
     av.hidden = false;
     const m = d.eta_ultima_lettura_min;
@@ -325,6 +349,10 @@ function mostra(d) {
     $("autonomia-dett").textContent = "";
   }
   document.title = simbolo + "Addolcitore BWT";
+  $("imp-attuale").textContent = d.config.mac
+    ? "Addolcitore configurato: " + d.config.mac : "Nessun addolcitore configurato.";
+  $("imp-nota").hidden = d.ble_disponibile;
+  $("btn-scan").disabled = !d.ble_disponibile;
   window.__capaKg = d.capacita_kg;
   window.__pin = d.pin_richiesto;
 
@@ -422,6 +450,71 @@ $("btn-annulla").addEventListener("click", async () => {
   try { await invia("api/rabbocco/annulla", {pin: chiediPin()}); await aggiorna(); }
   catch (err) { $("err-annulla").textContent = err.message; }
 });
+
+function riga(tab, d, conPulsante) {
+  const tr = document.createElement("tr");
+  for (const t of [d.mac, d.rssi + " dBm", d.nome || "–"]) {
+    const c = document.createElement("td"); c.textContent = t; tr.appendChild(c);
+  }
+  const c = document.createElement("td");
+  if (conPulsante) {
+    const b = document.createElement("button"); b.textContent = "Verifica";
+    b.addEventListener("click", () => verifica(d.mac, b));
+    c.appendChild(b);
+  }
+  tr.appendChild(c); tab.appendChild(tr);
+}
+
+$("btn-scan").addEventListener("click", async () => {
+  const b = $("btn-scan"); b.disabled = true; $("imp-err").textContent = "";
+  $("imp-verifica").hidden = true;
+  $("imp-stato").textContent = "Scansione in corso… (circa 10 secondi)";
+  try {
+    const j = await invia("api/scan", {pin: chiediPin()});
+    const bwt = j.dispositivi.filter(x => x.bwt), altri = j.dispositivi.filter(x => !x.bwt);
+    for (const [tab, lista, p] of [[$("tab-scan"), bwt, true], [$("tab-altri"), altri, false]]) {
+      tab.replaceChildren(); lista.forEach(x => riga(tab, x, p));
+    }
+    $("n-altri").textContent = altri.length; $("imp-altri").hidden = !altri.length;
+    $("imp-stato").textContent = bwt.length
+      ? bwt.length + " addolcitore/i BWT trovato/i."
+      : "Nessun addolcitore BWT trovato: avvicinati, chiudi l'app BWT sul telefono e riprova.";
+  } catch (err) { $("imp-err").textContent = err.message; $("imp-stato").textContent = ""; }
+  b.disabled = false;
+});
+
+async function verifica(mac, b) {
+  b.disabled = true; $("imp-err").textContent = "";
+  $("imp-stato").textContent = "Verifica in corso… (può richiedere fino a 30 secondi)";
+  try {
+    const j = await invia("api/verifica", {mac, pin: chiediPin()}), v = j.dispositivo;
+    const box = $("imp-verifica"); box.replaceChildren();
+    const t = document.createElement("div");
+    t.textContent = v.mac + " · firmware " + v.firmware + " · serbatoio " +
+      v.capacita_kg.toLocaleString("it-IT") + " kg · " + v.sale_per_rigenerazione_g +
+      " g di sale per rigenerazione";
+    box.appendChild(t);
+    if (!v.testato) {
+      const w = document.createElement("div"); w.className = "avviso"; w.style.marginTop = "8px";
+      w.textContent = "Firmware non ancora provato con questo programma: i valori potrebbero non essere corretti.";
+      box.appendChild(w);
+    }
+    const az = document.createElement("div"); az.className = "azioni";
+    const ok = document.createElement("button"); ok.className = "primario";
+    ok.textContent = "Usa questo addolcitore";
+    ok.addEventListener("click", async () => {
+      ok.disabled = true;
+      try {
+        await invia("api/config", {mac: v.mac, pin: chiediPin()});
+        $("imp-stato").textContent = "Salvato: la registrazione riparte entro pochi secondi.";
+        box.hidden = true; await aggiorna();
+      } catch (err) { $("imp-err").textContent = err.message; ok.disabled = false; }
+    });
+    az.appendChild(ok); box.appendChild(az); box.hidden = false;
+    $("imp-stato").textContent = "";
+  } catch (err) { $("imp-err").textContent = err.message; $("imp-stato").textContent = ""; }
+  b.disabled = false;
+}
 
 aggiorna();
 setInterval(aggiorna, 60000);
