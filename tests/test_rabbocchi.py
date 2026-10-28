@@ -35,7 +35,7 @@ class AnalisiTest(unittest.TestCase):
 
     def test_ciclo_misurato(self):
         c = cicli_rabbocco(STORIA)
-        self.assertEqual(c, [{"rigenerazioni": 10, "consumato_kg": 10,
+        self.assertEqual(c, [{"litri": None, "rigenerazioni": 10, "consumato_kg": 10,
                               "residuo_kg": 4, "livello_prima": "riserva"}])
 
     def test_calibrazione_e_stati(self):
@@ -76,6 +76,64 @@ class AnalisiTest(unittest.TestCase):
         a = stato(11, rate=None)
         self.assertIsNone(a["giorni_a_riserva"])
         self.assertEqual(a["stato"], "ok")
+
+
+def rabl(rig, litri, kg_dopo=14, agg=None, liv="sconosciuto"):
+    return {**rab(rig, kg_dopo, agg, liv), "litri_totali": litri}
+
+
+class ModelloALitriTest(unittest.TestCase):
+    """La rigenerazione e' proporzionale alla resina esaurita (manuale BWT):
+    il sale consumato segue i litri addolciti, non il numero di rigenerazioni."""
+
+    # 10 kg consumati in 5000 L = 2 g/L, in sole 4 rigenerazioni (non 1000 g l'una)
+    STORIA_L = [rabl(0, 0), rabl(4, 5000, agg=10, liv="riserva")]
+
+    def test_grammi_per_litro_misurati(self):
+        a = analisi_sale(self.STORIA_L, 4 + 2, 1200, 14000, 0.3, 5000 + 1500, 300)
+        self.assertEqual(a["modello"], "litri")
+        self.assertEqual(a["g_per_litro"], 2.0)
+        self.assertEqual(a["residuo_g"], 14000 - 3000)        # 1500 L x 2 g/L
+        self.assertEqual(a["riserva_g"], 4000)
+        self.assertEqual(a["giorni_a_riserva"], round((11000 - 4000) / (300 * 2)))  # 12
+
+    def test_il_numero_di_rigenerazioni_non_pesa(self):
+        # stessi litri, rigenerazioni molto diverse: stesso residuo
+        a1 = analisi_sale(self.STORIA_L, 5, 1200, 14000, 0.3, 6500, 300)
+        a2 = analisi_sale(self.STORIA_L, 12, 1200, 14000, 0.3, 6500, 300)
+        self.assertEqual(a1["residuo_g"], a2["residuo_g"])
+
+    def test_stati_a_litri(self):
+        self.assertEqual(analisi_sale(self.STORIA_L, 6, 1200, 14000, 0.3, 5000 + 3000, 300)
+                         ["stato"], "avviso")       # residuo 8 kg: (8000-4000)/600 = 7 giorni
+        self.assertEqual(analisi_sale(self.STORIA_L, 9, 1200, 14000, 0.3, 5000 + 5000, 300)
+                         ["stato"], "riserva")      # residuo 4 kg
+
+    def test_senza_litri_noti_si_ricade_sulle_rigenerazioni(self):
+        storia = [rab(0), rab(10, agg=10, liv="riserva")]          # nessun litro registrato
+        a = analisi_sale(storia, 13, 1200, 14000, 0.5, 9999, 300)
+        self.assertEqual(a["modello"], "rigenerazioni")
+        self.assertIsNone(a["g_per_litro"])
+
+    def test_ciclo_con_pochi_litri_non_calibra(self):
+        storia = [rabl(0, 0), rabl(5, 200, agg=2, liv="riserva")]   # < 300 L
+        self.assertEqual(analisi_sale(storia, 5, 1200, 14000, 0.3, 200, 300)["modello"],
+                         "rigenerazioni")
+
+    def test_consumo_per_litro_assurdo_scartato(self):
+        storia = [rabl(0, 0), rabl(5, 1000, agg=13, liv="riserva")]  # 13 g/L
+        a = analisi_sale(storia, 5, 1200, 14000, 0.3, 1000, 300)
+        self.assertEqual(a["modello"], "rigenerazioni")
+        self.assertEqual(a["cicli_scartati"], 1)
+
+    def test_rabbocco_registrato_in_ritardo_non_ha_i_litri(self):
+        with tempfile.TemporaryDirectory() as d:
+            Tracker(d).applica(datetime(2026, 11, 1, 10),
+                               {"idx_quarti": 1, "idx_giorni": 1, "sale_g": 0,
+                                "sale_per_rigenerazione_g": 1200, "capacita_g": 14000},
+                               b"\0" * 20, [], [])
+            self.assertEqual(registra_rabbocco(d, 14)["litri_totali"], 0)
+            self.assertIsNone(registra_rabbocco(d, 14, rigen_gia_usate=2)["litri_totali"])
 
 
 class ArchivioTest(unittest.TestCase):

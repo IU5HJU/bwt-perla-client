@@ -244,8 +244,11 @@ def cmd_status(data_dir):
     print(f"  sale: stato {a['stato']}{da}, residuo stimato {a['residuo_g'] / 1000:.1f} kg "
           f"({a['pct']}%), riserva a {a['riserva_g'] / 1000:.1f} kg "
           f"({'misurata' if a['riserva_calibrata'] else 'provvisoria'})")
-    print(f"  consumo per rigenerazione: {a['g_per_rigenerazione']} g "
-          f"({'misurato su ' + str(a['cicli_misurati']) + ' cicli' if a['g_calibrato'] else 'valore dell apparecchio'})")
+    if a["modello"] == "litri":
+        print(f"  consumo: {a['g_per_litro']} g per litro (misurato su {a['cicli_misurati']} cicli)")
+    else:
+        print(f"  consumo: {a['g_per_rigenerazione']} g per rigenerazione "
+              f"({'misurato su ' + str(a['cicli_misurati']) + ' cicli' if a['g_calibrato'] else 'valore dichiarato dall apparecchio'})")
     print(f"  giorni alla riserva: {a['giorni_a_riserva']}, "
           f"all'esaurimento teorico: {a['giorni_a_esaurimento']}")
 

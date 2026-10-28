@@ -7,7 +7,10 @@ app): il residuo e' quindi stimato come
 Ogni rabbocco e' una misura reale: tra due rabbocchi si conoscono le
 rigenerazioni avvenute e i kg rimessi, da cui si ricavano il consumo reale per
 rigenerazione e il livello di "riserva" (quando si vede l'acqua di salamoia
-sul fondo e si rabbocca). I rabbocchi stanno in `rabbocchi.json`, un file a
+sul fondo e si rabbocca). Il manuale dice che la rigenerazione e' proporzionale
+alla resina esaurita: il sale consumato segue i litri addolciti, non il numero
+di rigenerazioni, quindi il consumo si misura in grammi per litro (con il
+valore per rigenerazione come ripiego). I rabbocchi stanno in `rabbocchi.json`, un file a
 parte: il servizio di registrazione riscrive `state.json` a ogni ciclo e
 cancellerebbe le modifiche fatte da un altro processo (CLI o pagina web).
 
@@ -32,6 +35,8 @@ LIVELLI = ("abbondante", "riserva", "sconosciuto")
 RISERVA_PROVVISORIA = 0.25   # frazione del serbatoio, finche' non c'e' una misura
 GIORNI_AVVISO = 7            # preavviso prima di arrivare in riserva
 MIN_RIGEN_CICLO = 3          # rigenerazioni minime per fidarsi di un ciclo
+MIN_LITRI_CICLO = 300        # litri minimi per misurare i grammi per litro
+G_PER_LITRO_PLAUSIBILE = (0.05, 10.0)
 FATTORE_PLAUSIBILE = (0.3, 3.0)   # consumo misurato / nominale ammesso
 KG_MAX = 200
 
@@ -138,6 +143,9 @@ def registra_rabbocco(data_dir, kg_dopo=None, kg_aggiunti=None,
         "kg_aggiunti": None if kg_aggiunti is None else round(float(kg_aggiunti), 2),
         "livello_prima": livello_prima,
         "rigenerazioni_totali": stato.get("rigenerazioni_totali", 0) - rigen_gia_usate,
+        # litri contati dal servizio fino a questo rabbocco; sconosciuti se
+        # il rabbocco e' registrato in ritardo
+        "litri_totali": (stato.get("litri_totali", 0) if rigen_gia_usate == 0 else None),
     }
     lista = carica_rabbocchi(d)
     lista.append(rec)
@@ -165,7 +173,9 @@ def cicli_rabbocco(rabbocchi: list[dict]) -> list[dict]:
         if agg is None:
             continue
         residuo = b["kg_dopo"] - agg
+        la, lb = a.get("litri_totali"), b.get("litri_totali")
         cicli.append({
+            "litri": lb - la if la is not None and lb is not None else None,
             "rigenerazioni": b["rigenerazioni_totali"] - a["rigenerazioni_totali"],
             "consumato_kg": a["kg_dopo"] - residuo,
             "residuo_kg": residuo,
@@ -174,9 +184,13 @@ def cicli_rabbocco(rabbocchi: list[dict]) -> list[dict]:
     return cicli
 
 
-def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
+def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate,
+                 litri_totali=None, litri_giorno=None):
     """Stato del sale. None se non c'e' nessun rabbocco.
 
+    - consumo: se ci sono cicli con i litri noti si usano i grammi per litro
+      (la rigenerazione e' proporzionale alla resina esaurita); altrimenti i
+      grammi per rigenerazione;
     - g per rigenerazione: misurato sui cicli plausibili (almeno
       MIN_RIGEN_CICLO rigenerazioni, entro FATTORE_PLAUSIBILE del valore
       dichiarato) o, in mancanza, quello dichiarato dall'apparecchio;
@@ -188,8 +202,19 @@ def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
         return None
     ultimo = rabbocchi[-1]
     cicli = cicli_rabbocco(rabbocchi)
+
+    def litri_ok(c):
+        """Falso se i litri sono noti e il consumo per litro e' assurdo: il dato
+        (kg digitati male) e' sospetto anche per il ripiego a rigenerazioni."""
+        if c["litri"] is None or c["litri"] < MIN_LITRI_CICLO:
+            return True
+        return (G_PER_LITRO_PLAUSIBILE[0]
+                <= c["consumato_kg"] * 1000 / c["litri"] <= G_PER_LITRO_PLAUSIBILE[1])
+
     def plausibile(c):
         if c["rigenerazioni"] < MIN_RIGEN_CICLO or c["consumato_kg"] <= 0:
+            return False
+        if not litri_ok(c):
             return False
         if not g_nominale:
             return True
@@ -197,12 +222,37 @@ def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
         return FATTORE_PLAUSIBILE[0] <= rapporto <= FATTORE_PLAUSIBILE[1]
 
     validi = [c for c in cicli if plausibile(c)]
-    g_calibrato = bool(validi)
-    g_rig = (sum(c["consumato_kg"] for c in validi) * 1000
-             / sum(c["rigenerazioni"] for c in validi)) if validi else g_nominale
+
+    def plausibile_litri(c):
+        if c["litri"] is None or c["litri"] < MIN_LITRI_CICLO or c["consumato_kg"] <= 0:
+            return False
+        return (G_PER_LITRO_PLAUSIBILE[0]
+                <= c["consumato_kg"] * 1000 / c["litri"] <= G_PER_LITRO_PLAUSIBILE[1])
+
+    validi_l = [c for c in cicli if plausibile_litri(c)]
+    litri_dal = None
+    if ultimo.get("litri_totali") is not None and litri_totali is not None:
+        litri_dal = litri_totali - ultimo["litri_totali"]
+    g_litro = None
+    if validi_l and litri_dal is not None:
+        modello = "litri"
+        g_litro = sum(c["consumato_kg"] for c in validi_l) * 1000 / sum(c["litri"] for c in validi_l)
+        g_calibrato = True
+        validi = validi_l
+        consumo_g = litri_dal * g_litro
+        uso_giorno_g = litri_giorno * g_litro if litri_giorno else None
+        g_rig = (consumo_g / (rigen_totali - ultimo["rigenerazioni_totali"])
+                 if rigen_totali > ultimo["rigenerazioni_totali"] else g_nominale)
+    else:
+        modello = "rigenerazioni"
+        g_calibrato = bool(validi)
+        g_rig = (sum(c["consumato_kg"] for c in validi) * 1000
+                 / sum(c["rigenerazioni"] for c in validi)) if validi else g_nominale
+        consumo_g = (rigen_totali - ultimo["rigenerazioni_totali"]) * g_rig
+        uso_giorno_g = rate * g_rig if rate and g_rig else None
 
     rig_dal = rigen_totali - ultimo["rigenerazioni_totali"]
-    residuo_g = max(0.0, ultimo["kg_dopo"] * 1000 - rig_dal * g_rig)
+    residuo_g = max(0.0, ultimo["kg_dopo"] * 1000 - consumo_g)
 
     riserve = [c["residuo_kg"] for c in cicli
                if c["livello_prima"] == "riserva" and c["residuo_kg"] >= 0]
@@ -210,7 +260,6 @@ def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
     riserva_g = (sum(riserve) / len(riserve) * 1000 if riserve
                  else RISERVA_PROVVISORIA * ultimo["kg_dopo"] * 1000)
 
-    uso_giorno_g = rate * g_rig if rate and g_rig else None
     giorni_riserva = ((residuo_g - riserva_g) / uso_giorno_g
                       if uso_giorno_g else None)
     if giorni_riserva is not None:
@@ -239,6 +288,8 @@ def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
         "giorni_a_esaurimento": giorni_esaurimento,
         "rabbocco_data": ultimo["data"],
         "rabbocco_kg": ultimo["kg_dopo"],
+        "modello": modello,
+        "g_per_litro": None if g_litro is None else round(g_litro, 3),
         "cicli_misurati": len(validi),
         "cicli_scartati": len(cicli) - len(validi),
     }
@@ -274,7 +325,8 @@ class Tracker:
             rate = _num(u["rigenerazioni_al_giorno_30g"]) if u else None
         a = analisi_sale(carica_rabbocchi(self.dir),
                          self.state["rigenerazioni_totali"],
-                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate,
+                         self.state["litri_totali"], self.state.get("litri_giorno"))
         if a:
             sd = self.state.get("stato_sale") or {}
             a["stato_da"] = sd.get("da") if sd.get("stato") == a["stato"] else None
@@ -328,8 +380,11 @@ class Tracker:
 
         # frequenza media delle rigenerazioni sui giorni letti
         rate = (sum(g["rigen"] for g in giorni) / len(giorni)) if giorni else None
+        if giorni:     # litri al giorno secondo lo storico dell'apparecchio
+            s["litri_giorno"] = sum(g["litri"] for g in giorni) / len(giorni)
         a = analisi_sale(carica_rabbocchi(self.dir), s["rigenerazioni_totali"],
-                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate,
+                         s["litri_totali"], s.get("litri_giorno"))
         sale_g = pct = autonomia = None
         if a:
             sale_g, pct, autonomia = a["residuo_g"], a["pct"], a["giorni_a_esaurimento"]

@@ -293,21 +293,26 @@ function mostra(d) {
       " · " + a.rigenerazioni_dal_rabbocco + " rigenerazioni da allora";
     const gg = x => new Date(x).toLocaleDateString("it-IT", {day: "2-digit", month: "2-digit"});
     const da = a.stato_da ? " dal " + gg(a.stato_da) : "";
+    const prov = (a.g_calibrato && a.riserva_calibrata) ? "" :
+      " Stima provvisoria: si calibra al prossimo rabbocco, controlla anche a vista l'acqua di salamoia sul fondo.";
     if (a.stato === "riserva") {
       avs.hidden = false; avs.className = "avviso rosso";
-      avs.textContent = "Sale in riserva" + da + ": rabbocca appena puoi, poi usa «Rabbocco sale».";
+      avs.textContent = "Sale in riserva" + da + ": rabbocca appena puoi, poi usa «Rabbocco sale»." + prov;
     } else if (a.stato === "avviso") {
       const quando = new Date(Date.now() + a.giorni_a_riserva * 86400000);
       avs.hidden = false; avs.className = "avviso";
       avs.textContent = "Il sale entrerà in riserva tra circa " + a.giorni_a_riserva +
-        " giorni (intorno al " + gg(quando) + "): prepara il sale.";
+        " giorni (intorno al " + gg(quando) + "): prepara il sale." + prov;
     }
     simbolo = {riserva: "🔴 ", avviso: "🟠 "}[a.stato] || "";
     $("autonomia").textContent = a.stato === "riserva" ? "0" : fmt(a.giorni_a_riserva);
     const soglia = (a.riserva_g / 1000).toFixed(1).replace(".", ",") + " kg (" +
       (a.riserva_calibrata ? "misurata sui tuoi rabbocchi" : "provvisoria: si calibra al prossimo rabbocco in riserva") + ")";
-    const cons = a.g_per_rigenerazione + " g per rigenerazione (" +
-      (a.g_calibrato ? "misurato su " + a.cicli_misurati + (a.cicli_misurati === 1 ? " ciclo" : " cicli") : "valore dichiarato dall'apparecchio") + ")" +
+    const cicli = a.cicli_misurati + (a.cicli_misurati === 1 ? " ciclo" : " cicli");
+    const cons = (a.modello === "litri"
+      ? a.g_per_litro.toLocaleString("it-IT") + " g per litro (misurato su " + cicli + ")"
+      : a.g_per_rigenerazione + " g per rigenerazione (" +
+        (a.g_calibrato ? "misurato su " + cicli : "valore dichiarato dall'apparecchio") + ")") +
       (a.cicli_scartati ? ", " + a.cicli_scartati + " ciclo/i scartato/i perché incoerente/i" : "");
     $("autonomia-dett").textContent = "Soglia di riserva: " + soglia + ". Consumo: " + cons + ".";
   } else {
