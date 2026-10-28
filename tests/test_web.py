@@ -20,7 +20,7 @@ class WebTest(unittest.TestCase):
             r = riepilogo(d, datetime(2026, 10, 28, 12, 0))
         self.assertIsNone(r["ultima"])
         self.assertEqual(r["giorni"], [])
-        self.assertEqual(len(r["ore"]), 48)
+        self.assertEqual(len(r["ore"]), 168)
 
     def test_riepilogo_con_dati(self):
         with tempfile.TemporaryDirectory() as d:
