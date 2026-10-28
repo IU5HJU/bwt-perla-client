@@ -59,9 +59,14 @@ digitato male), vengono scartati e segnalati. Lo stato del sale e' `ok`, `avviso
 
 ### Dal manuale (AQA perla 5 C - 30 C)
 
-- Modello piu' piccolo, **5 C**: capacita' 32 °f x m3, **serbatoio del sale max
-  13 kg**, 20 g di sale per °f x m3, 1,8 l di acqua di risciacquo per °f x m3.
+Valori del manuale svizzero-tedesco/francese. La targhetta di questo apparecchio
+dice **AQAPERLA 5 BIO PR IT** (codice B00449961IT, 2021, costruito in Francia):
+una variante vicina ma non identica, quindi i numeri sotto sono indicativi.
+
+- Modello piu' piccolo (**5 C**): capacita' 32 °f x m3, serbatoio del sale max
+  13 kg, 20 g di sale per °f x m3, 1,8 l di acqua di risciacquo per °f x m3.
   Via Bluetooth l'apparecchio dichiara 14 kg: i due valori non coincidono.
+- La rigenerazione e' proporzionale alla resina esaurita (al massimo ogni 7 giorni).
 - Il fondo del serbatoio deve restare sempre coperto di sale non sciolto.
 - Per gli addolcitori con controllo del sale via app, dopo ogni rabbocco *la
   quantita' di sale va inserita nell'app*: e' per questo che il livello letto via
