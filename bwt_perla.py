@@ -240,7 +240,8 @@ def cmd_status(data_dir):
     if not a:
         print("  sale: nessun rabbocco registrato (usa salt-refill)")
         return
-    print(f"  sale: stato {a['stato']}, residuo stimato {a['residuo_g'] / 1000:.1f} kg "
+    da = f" dal {a['stato_da'][:10]}" if a.get("stato_da") else ""
+    print(f"  sale: stato {a['stato']}{da}, residuo stimato {a['residuo_g'] / 1000:.1f} kg "
           f"({a['pct']}%), riserva a {a['riserva_g'] / 1000:.1f} kg "
           f"({'misurata' if a['riserva_calibrata'] else 'provvisoria'})")
     print(f"  consumo per rigenerazione: {a['g_per_rigenerazione']} g "

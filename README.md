@@ -52,6 +52,14 @@ valore dichiarato, per esempio un kg digitato male) vengono scartati e
 segnalati. Lo stato del sale e' `ok`, `avviso` (riserva entro 7 giorni) o
 `riserva`: l'esaurimento non e' mai lo scenario previsto.
 
+**Notifica:** quando mancano 7 giorni alla riserva la pagina mostra un banner
+arancione con la data prevista, e uno rosso, con il giorno d'inizio, quando il
+sale e' in riserva; il titolo della scheda del browser prende 🟠 o 🔴. Il
+giorno d'inizio lo memorizza il servizio di registrazione (`state.json`). Non
+ci sono notifiche del browser a pagina chiusa: richiedono HTTPS. Il 100% e' il
+livello dell'ultimo rabbocco ("kg dopo"), non la capacita' dichiarata
+dall'apparecchio.
+
 I rabbocchi stanno in `rabbocchi.json`, a parte, cosi' non vanno persi se li
 registri mentre il servizio di registrazione e' in funzione. Un rabbocco sbagliato
 si annulla dalla pagina (Storico rabbocchi) o a mano modificando il file.

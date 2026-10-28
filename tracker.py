@@ -223,7 +223,9 @@ def analisi_sale(rabbocchi, rigen_totali, g_nominale, capa_g, rate):
         stato = "avviso"
     else:
         stato = "ok"
-    capa = capa_g or ultimo["kg_dopo"] * 1000
+    # 100% = il livello a cui hai riempito, non la capacita' dichiarata
+    # dall'apparecchio (che puo' differire dal serbatoio reale)
+    capa = ultimo["kg_dopo"] * 1000
     return {
         "stato": stato,
         "residuo_g": int(residuo_g),
@@ -270,9 +272,13 @@ class Tracker:
         if rate is None:
             u = self.ultima_riga()
             rate = _num(u["rigenerazioni_al_giorno_30g"]) if u else None
-        return analisi_sale(carica_rabbocchi(self.dir),
-                            self.state["rigenerazioni_totali"],
-                            bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
+        a = analisi_sale(carica_rabbocchi(self.dir),
+                         self.state["rigenerazioni_totali"],
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
+        if a:
+            sd = self.state.get("stato_sale") or {}
+            a["stato_da"] = sd.get("da") if sd.get("stato") == a["stato"] else None
+        return a
 
     # ── ciclo di lettura ────────────────────────────────────────────
 
@@ -322,7 +328,15 @@ class Tracker:
 
         # frequenza media delle rigenerazioni sui giorni letti
         rate = (sum(g["rigen"] for g in giorni) / len(giorni)) if giorni else None
-        sale_g, pct, autonomia = self.stima_sale(bc, rate)
+        a = analisi_sale(carica_rabbocchi(self.dir), s["rigenerazioni_totali"],
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
+        sale_g = pct = autonomia = None
+        if a:
+            sale_g, pct, autonomia = a["residuo_g"], a["pct"], a["giorni_a_esaurimento"]
+        # momento in cui lo stato del sale e' cambiato (ok / avviso / riserva)
+        nuovo = a["stato"] if a else None
+        if nuovo != (s.get("stato_sale") or {}).get("stato"):
+            s["stato_sale"] = {"stato": nuovo, "da": now.isoformat(timespec="seconds")}
 
         riga = {
             "timestamp": now.isoformat(timespec="seconds"),
@@ -341,16 +355,6 @@ class Tracker:
         _scrivi_righe(self.dir / CICLI_CSV, CICLI_COLONNE, [riga])
         self._salva()
         return riga
-
-    def stima_sale(self, bc: dict, rate: float | None):
-        """-> (grammi, percentuale, giorni all'esaurimento teorico);
-        None se nessun rabbocco."""
-        a = analisi_sale(carica_rabbocchi(self.dir),
-                         self.state["rigenerazioni_totali"],
-                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate)
-        if a is None:
-            return None, None, None
-        return a["residuo_g"], a["pct"], a["giorni_a_esaurimento"]
 
     def ultima_riga(self) -> dict | None:
         p = self.dir / CICLI_CSV
