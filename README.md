@@ -22,7 +22,9 @@ python bwt_perla.py status                      # ultima riga registrata
 
 Prima di collegarti chiudi l'app BWT e disattiva il Bluetooth sugli altri
 telefoni: con una connessione attiva l'addolcitore non è più visibile.
-Il segnale è debole (~ -80 dBm): tieni l'adattatore entro pochi metri.
+Il segnale è debole (~ -80 dBm): tieni l'adattatore entro pochi metri. La radio
+dell'apparecchio ha poca portata di suo: `log` riprova una lettura fallita 3 volte,
+a 30 secondi l'una dall'altra, prima di rimandarla al ciclo successivo.
 
 ## Rabbocco del sale e stima
 
@@ -43,14 +45,42 @@ python bwt_perla.py salt-refill 14 --aggiunti 9.5 --livello riserva
 - `--used-regens N`: rigenerazioni gia' avvenute, se il rabbocco e' stato fatto
   prima di registrarlo.
 
-Tra due rabbocchi si conoscono le rigenerazioni avvenute e i kg rimessi: se ne
-ricavano il **consumo reale per rigenerazione** (all'inizio vale quello
-dichiarato dall'apparecchio, 1200 g) e la **soglia di riserva**, cioe' il livello
-a cui rabbocchi davvero (all'inizio provvisoria, 25% del serbatoio). Cicli con
-meno di 3 rigenerazioni o con un consumo incoerente (fuori da 0,3-3 volte il
-valore dichiarato, per esempio un kg digitato male) vengono scartati e
-segnalati. Lo stato del sale e' `ok`, `avviso` (riserva entro 7 giorni) o
-`riserva`: l'esaurimento non e' mai lo scenario previsto.
+Tra due rabbocchi si conoscono i litri addolciti, le rigenerazioni avvenute e i kg
+rimessi: se ne ricavano il **consumo reale di sale** e la **soglia di riserva**,
+cioe' il livello a cui rabbocchi davvero.
+
+Il consumo si misura in **grammi per litro**: il manuale spiega che la
+rigenerazione e' proporzionale alla resina esaurita (rigenera solo la parte
+consumata, al massimo ogni 7 giorni), quindi il sale usato segue i litri e non il
+numero di rigenerazioni. Finche' non c'e' un ciclo misurato si usa il valore
+dichiarato dall'apparecchio per rigenerazione (1200 g) e una riserva provvisoria
+(10% del serbatoio, ricavato da un rabbocco ogni ~40 giorni): i banner lo dicono ("stima provvisoria"). Cicli con troppo
+pochi litri o rigenerazioni, o con un consumo incoerente (per esempio un kg
+digitato male), vengono scartati e segnalati. Lo stato del sale e' `ok`, `avviso`
+(riserva entro 7 giorni) o `riserva`: l'esaurimento non e' mai lo scenario previsto.
+
+### Dal manuale (AQA perla 5 C - 30 C)
+
+Valori del manuale svizzero-tedesco/francese. La targhetta di questo apparecchio
+dice **AQAPERLA 5 BIO PR IT** (codice B00449961IT, 2021, costruito in Francia):
+una variante vicina ma non identica, quindi i numeri sotto sono indicativi.
+
+- Modello piu' piccolo (**5 C**): capacita' 32 °f x m3, serbatoio del sale max
+  13 kg, 20 g di sale per °f x m3, 1,8 l di acqua di risciacquo per °f x m3.
+  Via Bluetooth l'apparecchio dichiara 14 kg: i due valori non coincidono.
+- La rigenerazione e' proporzionale alla resina esaurita (al massimo ogni 7 giorni).
+- Il fondo del serbatoio deve restare sempre coperto di sale non sciolto.
+- Per gli addolcitori con controllo del sale via app, dopo ogni rabbocco *la
+  quantita' di sale va inserita nell'app*: e' per questo che il livello letto via
+  Bluetooth resta a 0 se non lo scrive nessuno.
+
+**Notifica:** quando mancano 7 giorni alla riserva la pagina mostra un banner
+arancione con la data prevista, e uno rosso, con il giorno d'inizio, quando il
+sale e' in riserva; il titolo della scheda del browser prende 🟠 o 🔴. Il
+giorno d'inizio lo memorizza il servizio di registrazione (`state.json`). Non
+ci sono notifiche del browser a pagina chiusa: richiedono HTTPS. Il 100% e' il
+livello dell'ultimo rabbocco ("kg dopo"), non la capacita' dichiarata
+dall'apparecchio.
 
 I rabbocchi stanno in `rabbocchi.json`, a parte, cosi' non vanno persi se li
 registri mentre il servizio di registrazione e' in funzione. Un rabbocco sbagliato

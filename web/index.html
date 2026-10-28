@@ -30,6 +30,8 @@
   .sub { color: var(--muted); font-size: .85rem; }
   .avviso { background: var(--warn-bg); color: var(--warn); border-radius: 8px;
             padding: 10px 12px; margin-bottom: 12px; font-size: .9rem; }
+  .avviso.rosso { background: color-mix(in srgb, var(--bad) 14%, transparent);
+                  color: var(--bad); }
   .griglia { display: grid; gap: 12px;
              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
   .card { background: var(--card); border: 1px solid var(--line);
@@ -85,6 +87,7 @@
     <span class="sub" id="aggiornato">in caricamento…</span>
   </header>
   <div id="avviso" class="avviso" hidden></div>
+  <div id="avviso-sale" class="avviso" hidden></div>
 
   <div class="griglia">
     <div class="card">
@@ -263,12 +266,17 @@ function mostra(d) {
     av.textContent = "Nessun dato: avvia la registrazione con «python bwt_perla.py log».";
   } else if (d.eta_ultima_lettura_min > 45) {
     av.hidden = false;
-    av.textContent = "L'ultima lettura risale a " + d.eta_ultima_lettura_min +
-      " minuti fa: controlla che la registrazione sia attiva e l'addolcitore raggiungibile.";
+    const m = d.eta_ultima_lettura_min;
+    const eta = m < 120 ? m + " minuti" : m < 2880 ? Math.round(m / 60) + " ore" : Math.round(m / 1440) + " giorni";
+    av.textContent = "L'ultima lettura risale a " + eta +
+      " fa: controlla che la registrazione sia attiva e l'addolcitore raggiungibile.";
   } else av.hidden = true;
 
   const a = d.analisi_sale;
   const badge = $("sale-badge");
+  const avs = $("avviso-sale");
+  avs.hidden = true;
+  let simbolo = "";
   if (a) {
     $("sale-pct").textContent = a.pct;
     $("sale-barra").style.width = Math.min(100, a.pct) + "%";
@@ -283,15 +291,28 @@ function mostra(d) {
     $("sale-dett").textContent = "≈ " + kg + " kg · rabbocco di " + a.rabbocco_kg +
       " kg del " + new Date(a.rabbocco_data).toLocaleDateString("it-IT") +
       " · " + a.rigenerazioni_dal_rabbocco + " rigenerazioni da allora";
+    const gg = x => new Date(x).toLocaleDateString("it-IT", {day: "2-digit", month: "2-digit"});
+    const da = a.stato_da ? " dal " + gg(a.stato_da) : "";
+    const prov = (a.g_calibrato && a.riserva_calibrata) ? "" :
+      " Stima provvisoria: si calibra al prossimo rabbocco, controlla anche a vista l'acqua di salamoia sul fondo.";
     if (a.stato === "riserva") {
-      av.hidden = false;
-      av.textContent = "Il sale è in riserva: rabbocca appena puoi, poi usa «Rabbocco sale».";
+      avs.hidden = false; avs.className = "avviso rosso";
+      avs.textContent = "Sale in riserva" + da + ": rabbocca appena puoi, poi usa «Rabbocco sale»." + prov;
+    } else if (a.stato === "avviso") {
+      const quando = new Date(Date.now() + a.giorni_a_riserva * 86400000);
+      avs.hidden = false; avs.className = "avviso";
+      avs.textContent = "Il sale entrerà in riserva tra circa " + a.giorni_a_riserva +
+        " giorni (intorno al " + gg(quando) + "): prepara il sale." + prov;
     }
+    simbolo = {riserva: "🔴 ", avviso: "🟠 "}[a.stato] || "";
     $("autonomia").textContent = a.stato === "riserva" ? "0" : fmt(a.giorni_a_riserva);
     const soglia = (a.riserva_g / 1000).toFixed(1).replace(".", ",") + " kg (" +
       (a.riserva_calibrata ? "misurata sui tuoi rabbocchi" : "provvisoria: si calibra al prossimo rabbocco in riserva") + ")";
-    const cons = a.g_per_rigenerazione + " g per rigenerazione (" +
-      (a.g_calibrato ? "misurato su " + a.cicli_misurati + " cicli" : "valore dichiarato dall'apparecchio") + ")" +
+    const cicli = a.cicli_misurati + (a.cicli_misurati === 1 ? " ciclo" : " cicli");
+    const cons = (a.modello === "litri"
+      ? a.g_per_litro.toLocaleString("it-IT") + " g per litro (misurato su " + cicli + ")"
+      : a.g_per_rigenerazione + " g per rigenerazione (" +
+        (a.g_calibrato ? "misurato su " + cicli : "valore dichiarato dall'apparecchio") + ")") +
       (a.cicli_scartati ? ", " + a.cicli_scartati + " ciclo/i scartato/i perché incoerente/i" : "");
     $("autonomia-dett").textContent = "Soglia di riserva: " + soglia + ". Consumo: " + cons + ".";
   } else {
@@ -303,6 +324,7 @@ function mostra(d) {
     $("autonomia").textContent = "–";
     $("autonomia-dett").textContent = "";
   }
+  document.title = simbolo + "Addolcitore BWT";
   window.__capaKg = d.capacita_kg;
   window.__pin = d.pin_richiesto;
 

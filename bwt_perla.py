@@ -195,13 +195,30 @@ async def ciclo(mac: str, tr: Tracker) -> dict:
     return tr.applica(datetime.now(), b, raw, q, d)
 
 
+async def ciclo_con_tentativi(mac, tr, tentativi=3, pausa=30, fn=None):
+    """La radio dell'apparecchio ha poca portata: una lettura fallita si
+    riprova dopo `pausa` secondi invece di aspettare il ciclo successivo.
+    I dati si registrano solo a lettura riuscita (vedi `ciclo`), quindi un
+    nuovo tentativo non conta nulla due volte."""
+    fn = fn or ciclo
+    for n in range(1, tentativi + 1):
+        try:
+            return await fn(mac, tr)
+        except Exception as e:
+            if n == tentativi:
+                raise
+            print(f"{datetime.now():%H:%M:%S}  tentativo {n}/{tentativi} fallito: "
+                  f"{e!r}; riprovo tra {pausa} s", flush=True)
+            await asyncio.sleep(pausa)
+
+
 async def cmd_log(mac, data_dir, interval, once):
     addr = await find(mac)
     tr = Tracker(data_dir)
     print(f"Registro in {tr.dir} ogni {interval} s (Ctrl+C per fermare)")
     while True:
         try:
-            r = await ciclo(addr, tr)
+            r = await ciclo_con_tentativi(addr, tr)
             print(f"{r['timestamp']}  +{r['litri_nuovi']} L  tot {r['litri_totali']} L  "
                   f"rigen {r['rigenerazioni_totali']}  sale stimato "
                   f"{r['sale_stimato_g'] or '-'} g  autonomia {r['autonomia_giorni'] or '-'} gg",
@@ -240,11 +257,15 @@ def cmd_status(data_dir):
     if not a:
         print("  sale: nessun rabbocco registrato (usa salt-refill)")
         return
-    print(f"  sale: stato {a['stato']}, residuo stimato {a['residuo_g'] / 1000:.1f} kg "
+    da = f" dal {a['stato_da'][:10]}" if a.get("stato_da") else ""
+    print(f"  sale: stato {a['stato']}{da}, residuo stimato {a['residuo_g'] / 1000:.1f} kg "
           f"({a['pct']}%), riserva a {a['riserva_g'] / 1000:.1f} kg "
           f"({'misurata' if a['riserva_calibrata'] else 'provvisoria'})")
-    print(f"  consumo per rigenerazione: {a['g_per_rigenerazione']} g "
-          f"({'misurato su ' + str(a['cicli_misurati']) + ' cicli' if a['g_calibrato'] else 'valore dell apparecchio'})")
+    if a["modello"] == "litri":
+        print(f"  consumo: {a['g_per_litro']} g per litro (misurato su {a['cicli_misurati']} cicli)")
+    else:
+        print(f"  consumo: {a['g_per_rigenerazione']} g per rigenerazione "
+              f"({'misurato su ' + str(a['cicli_misurati']) + ' cicli' if a['g_calibrato'] else 'valore dichiarato dall apparecchio'})")
     print(f"  giorni alla riserva: {a['giorni_a_riserva']}, "
           f"all'esaurimento teorico: {a['giorni_a_esaurimento']}")
 
