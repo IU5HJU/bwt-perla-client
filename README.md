@@ -144,6 +144,17 @@ giorno, per ora e del sale nel tempo. Legge i CSV di `~/bwt-data` (opzione
 ferma da piu' di 45 minuti. Solo libreria standard (la ricerca Bluetooth di
 `serve` usa `bleak`), nessun accesso a internet.
 
+**Icona sulla schermata Home.** Dal telefono, aprendo la pagina:
+- Android (Chrome): menu ⋮ > **Aggiungi a schermata Home** (o «Installa app»);
+- iPhone/iPad (Safari): Condividi > **Aggiungi alla schermata Home**.
+
+Appare l'icona dell'addolcitore (una goccia con dei cristalli di sale, disegnata
+per questo progetto; non e' il logo BWT, che e' un marchio loro). Se avevi gia'
+aggiunto un collegamento prima, l'icona vecchia resta: toglilo e aggiungilo di
+nuovo. La pagina e' in `http://`, quindi il telefono la tratta come un
+collegamento, non come un'app installabile. Le icone stanno in `web/icons/`
+(sorgenti `.svg` e `.png`) e sono servite da un elenco chiuso di file.
+
 La porta predefinita e' 8765 (`--port` per cambiarla): controlla prima che sia libera
 con `sudo ss -tlnp`.
 

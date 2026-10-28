@@ -27,7 +27,19 @@ from config import carica_config, salva_config, valida_mac
 from tracker import (CICLI_CSV, QUARTI_CSV, Tracker, annulla_ultimo_rabbocco,
                      carica_rabbocchi, registra_rabbocco)
 
-INDEX = Path(__file__).with_name("web") / "index.html"
+WEB = Path(__file__).with_name("web")
+INDEX = WEB / "index.html"
+# File statici ammessi (elenco chiuso: niente percorsi presi dalla richiesta)
+STATICI = {
+    "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+    "/icons/icon.svg": ("icons/icon.svg", "image/svg+xml"),
+    "/icons/icon-192.png": ("icons/icon-192.png", "image/png"),
+    "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
+    "/icons/maskable-512.png": ("icons/maskable-512.png", "image/png"),
+    "/icons/apple-touch-icon.png": ("icons/apple-touch-icon.png", "image/png"),
+    "/icons/favicon-32.png": ("icons/favicon-32.png", "image/png"),
+    "/favicon.ico": ("icons/favicon-32.png", "image/png"),
+}
 MAX_PUNTI_SALE = 500
 GIORNI_MOSTRATI = 30
 ORE_MOSTRATE = 48
@@ -151,11 +163,11 @@ class Handler(BaseHTTPRequestHandler):
     pin: str | None = None
     ble = None      # PonteBle quando il server gira con `bwt_perla.py serve`
 
-    def _invia(self, codice, tipo, corpo: bytes):
+    def _invia(self, codice, tipo, corpo: bytes, cache="no-store"):
         self.send_response(codice)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(corpo)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(corpo)
 
@@ -169,6 +181,9 @@ class Handler(BaseHTTPRequestHandler):
             self._invia(200, "application/json", corpo)
         elif path == "/healthz":
             self._invia(200, "text/plain", b"ok")
+        elif path in STATICI:
+            nome, tipo = STATICI[path]
+            self._invia(200, tipo, (WEB / nome).read_bytes(), "public, max-age=86400")
         else:
             self._invia(404, "text/plain", b"non trovato")
 
