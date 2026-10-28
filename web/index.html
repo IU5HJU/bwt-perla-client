@@ -52,6 +52,29 @@
   summary { cursor: pointer; color: var(--muted); }
   pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
         padding: 10px; overflow-x: auto; font-size: .8rem; }
+  .badge { display: inline-block; font-size: .8rem; font-weight: 600;
+           border-radius: 999px; padding: 2px 10px; margin: 2px 0 4px; }
+  .b-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .b-avviso { color: var(--warn); background: var(--warn-bg); }
+  .b-riserva { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+  .b-nd { color: var(--muted); background: var(--line); }
+  button { font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+           border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  button.primario { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.pericolo { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  .azioni { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+           color: var(--ink); padding: 18px; width: min(420px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog h2 { font-size: 1.1rem; }
+  label { display: block; margin: 12px 0 4px; font-size: .9rem; }
+  input, select { font: inherit; width: 100%; padding: 8px; border-radius: 8px;
+                  border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  input[type=checkbox] { width: auto; margin-right: 6px; }
+  .errore { color: var(--bad); font-size: .9rem; min-height: 1.2em; margin-top: 8px; }
+  .tab { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: 8px; }
+  .tab th, .tab td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
   .vuoto { color: var(--muted); padding: 24px 0; text-align: center; }
 </style>
 </head>
@@ -66,12 +89,14 @@
   <div class="griglia">
     <div class="card">
       <h2>Sale (stimato)</h2>
+      <span class="badge b-nd" id="sale-badge">–</span>
       <div class="grande"><span id="sale-pct">–</span><span class="unit">%</span></div>
       <div class="barra"><div id="sale-barra" style="width:0"></div></div>
       <div class="muted" id="sale-dett">Nessun rabbocco registrato</div>
+      <div class="azioni"><button class="primario" id="btn-rabbocco">Rabbocco sale</button></div>
     </div>
     <div class="card">
-      <h2>Autonomia</h2>
+      <h2>Alla riserva</h2>
       <div class="grande"><span id="autonomia">–</span><span class="unit"> giorni</span></div>
       <div class="muted" id="autonomia-dett"></div>
     </div>
@@ -101,13 +126,51 @@
   </section>
 
   <details>
+    <summary>Storico rabbocchi</summary>
+    <table class="tab" id="tab-rabbocchi"></table>
+    <div class="azioni"><button class="pericolo" id="btn-annulla">Annulla ultimo rabbocco</button></div>
+    <div class="errore" id="err-annulla"></div>
+  </details>
+
+  <details>
     <summary>Dati tecnici dell'ultima lettura</summary>
     <pre id="tecnici"></pre>
   </details>
-  <p class="muted">Il sale è una stima: rabbocco meno rigenerazioni × grammi per
-  rigenerazione. L'apparecchio riporta sempre 0 g. Gli orari dei quarti d'ora sono
+  <p class="muted">Il sale è una stima: kg dopo il rabbocco meno rigenerazioni × consumo per
+  rigenerazione (misurato sui tuoi rabbocchi). L'apparecchio riporta sempre 0 g. Gli orari dei quarti d'ora sono
   approssimati.</p>
 </main>
+
+<dialog id="dlg">
+  <form id="frm" method="dialog">
+    <h2>Rabbocco sale</h2>
+    <p class="muted">Registra il rabbocco appena fatto. Con i kg aggiunti e il livello
+    prima del rabbocco, il consumo reale e la soglia di riserva si calibrano da soli.</p>
+    <label for="f-agg">Kg di sale aggiunti</label>
+    <input id="f-agg" type="number" inputmode="decimal" min="0" step="0.5" placeholder="es. 10">
+    <label for="f-liv">Com'era il sale prima del rabbocco?</label>
+    <select id="f-liv">
+      <option value="riserva">In riserva (acqua di salamoia visibile)</option>
+      <option value="abbondante">Ancora abbondante</option>
+      <option value="sconosciuto">Non so</option>
+    </select>
+    <label><input id="f-pieno" type="checkbox" checked>Serbatoio riempito al massimo
+      (<span id="f-capa">–</span> kg)</label>
+    <div id="f-dopo-box" hidden>
+      <label for="f-dopo">Kg nel serbatoio dopo il rabbocco</label>
+      <input id="f-dopo" type="number" inputmode="decimal" min="0" step="0.5">
+    </div>
+    <div id="f-pin-box" hidden>
+      <label for="f-pin">PIN</label>
+      <input id="f-pin" type="password" autocomplete="off">
+    </div>
+    <div class="errore" id="f-err"></div>
+    <div class="azioni">
+      <button type="submit" class="primario" id="f-ok">Registra</button>
+      <button type="button" id="f-no">Annulla</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -155,7 +218,7 @@ function bars(svg, items, labelFn, W, H, evento) {
   });
 }
 
-function linea(svg, punti, W, H) {
+function linea(svg, punti, W, H, riserva) {
   W = larg(svg);
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
   svg.replaceChildren();
@@ -171,6 +234,12 @@ function linea(svg, punti, W, H) {
     const y = T + (H - T - B) * (1 - f);
     svg.appendChild(el("line", {x1: L, x2: W - R, y1: y, y2: y, class: "assi"}));
     svg.appendChild(el("text", {x: L - 4, y: y + 4, "text-anchor": "end"}, (max * f).toFixed(1)));
+  }
+  if (riserva > 0 && riserva < max) {
+    const y = T + (H - T - B) * (1 - riserva / max);
+    svg.appendChild(el("line", {x1: L, x2: W - R, y1: y, y2: y, style: "stroke: var(--bad)",
+      "stroke-dasharray": "5 4"}));
+    svg.appendChild(el("text", {x: W - R, y: y - 4, "text-anchor": "end"}, "riserva"));
   }
   const d = punti.map((p, i) => {
     const x = L + (W - L - R) * (p.t - t0) / Math.max(1, t1 - t0);
@@ -198,20 +267,62 @@ function mostra(d) {
       " minuti fa: controlla che la registrazione sia attiva e l'addolcitore raggiungibile.";
   } else av.hidden = true;
 
-  if (u && u.sale_stimato_pct !== "") {
-    $("sale-pct").textContent = u.sale_stimato_pct;
-    $("sale-barra").style.width = Math.min(100, u.sale_stimato_pct) + "%";
-    $("sale-dett").textContent = fmt((u.sale_stimato_g / 1000).toFixed(1)) +
-      " kg · rabbocco di " + d.rabbocco.kg + " kg del " +
-      new Date(d.rabbocco.data).toLocaleDateString("it-IT");
+  const a = d.analisi_sale;
+  const badge = $("sale-badge");
+  if (a) {
+    $("sale-pct").textContent = a.pct;
+    $("sale-barra").style.width = Math.min(100, a.pct) + "%";
+    const kg = (a.residuo_g / 1000).toFixed(1).replace(".", ",");
+    const badges = {
+      ok: ["b-ok", "Sale a posto"],
+      avviso: ["b-avviso", "Riserva tra " + a.giorni_a_riserva + " giorni"],
+      riserva: ["b-riserva", "In riserva: rabbocca"]
+    }[a.stato];
+    badge.className = "badge " + badges[0];
+    badge.textContent = badges[1];
+    $("sale-dett").textContent = "≈ " + kg + " kg · rabbocco di " + a.rabbocco_kg +
+      " kg del " + new Date(a.rabbocco_data).toLocaleDateString("it-IT") +
+      " · " + a.rigenerazioni_dal_rabbocco + " rigenerazioni da allora";
+    if (a.stato === "riserva") {
+      av.hidden = false;
+      av.textContent = "Il sale è in riserva: rabbocca appena puoi, poi usa «Rabbocco sale».";
+    }
+    $("autonomia").textContent = a.stato === "riserva" ? "0" : fmt(a.giorni_a_riserva);
+    const soglia = (a.riserva_g / 1000).toFixed(1).replace(".", ",") + " kg (" +
+      (a.riserva_calibrata ? "misurata sui tuoi rabbocchi" : "provvisoria: si calibra al prossimo rabbocco in riserva") + ")";
+    const cons = a.g_per_rigenerazione + " g per rigenerazione (" +
+      (a.g_calibrato ? "misurato su " + a.cicli_misurati + " cicli" : "valore dichiarato dall'apparecchio") + ")" +
+      (a.cicli_scartati ? ", " + a.cicli_scartati + " ciclo/i scartato/i perché incoerente/i" : "");
+    $("autonomia-dett").textContent = "Soglia di riserva: " + soglia + ". Consumo: " + cons + ".";
   } else {
+    badge.className = "badge b-nd";
+    badge.textContent = "Nessun rabbocco registrato";
     $("sale-pct").textContent = "–";
     $("sale-barra").style.width = "0";
-    $("sale-dett").textContent = "Nessun rabbocco registrato (salt-refill)";
+    $("sale-dett").textContent = "Registra il rabbocco con il pulsante qui sotto";
+    $("autonomia").textContent = "–";
+    $("autonomia-dett").textContent = "";
   }
-  $("autonomia").textContent = fmt(u && u.autonomia_giorni);
-  $("autonomia-dett").textContent = u && u.rigenerazioni_al_giorno_30g !== ""
-    ? "con " + u.rigenerazioni_al_giorno_30g + " rigenerazioni/giorno (media 30 giorni)" : "";
+  window.__capaKg = d.capacita_kg;
+  window.__pin = d.pin_richiesto;
+
+  const tab = $("tab-rabbocchi");
+  tab.replaceChildren();
+  const th = document.createElement("tr");
+  for (const t of ["Data", "Aggiunti", "Dopo", "Prima"]) {
+    const c = document.createElement("th"); c.textContent = t; th.appendChild(c);
+  }
+  tab.appendChild(th);
+  for (const r of d.rabbocchi.slice().reverse()) {
+    const tr = document.createElement("tr");
+    for (const t of [new Date(r.data).toLocaleDateString("it-IT"),
+                     r.kg_aggiunti === null ? "–" : r.kg_aggiunti + " kg",
+                     r.kg_dopo + " kg", r.livello_prima]) {
+      const c = document.createElement("td"); c.textContent = t; tr.appendChild(c);
+    }
+    tab.appendChild(tr);
+  }
+  $("btn-annulla").disabled = !d.rabbocchi.length;
 
   const oggi = d.giorni.length ? d.giorni[d.giorni.length - 1] : null;
   $("oggi").textContent = fmt(oggi && oggi.litri);
@@ -232,7 +343,8 @@ function mostra(d) {
   })), i => i.o.slice(11, 13), 640, 180, false);
 
   linea($("g-sale"), d.sale.filter(s => s.g !== null)
-    .map(s => ({t: new Date(s.t).getTime(), kg: s.g / 1000})), 640, 180);
+    .map(s => ({t: new Date(s.t).getTime(), kg: s.g / 1000})), 640, 180,
+    a ? a.riserva_g / 1000 : 0);
 
   $("tecnici").textContent = u ? [
     "indice quarti: " + u.idx_quarti, "indice giorni: " + u.idx_giorni,
@@ -250,6 +362,45 @@ async function aggiorna() {
     $("avviso").textContent = "Impossibile leggere i dati dal server.";
   }
 }
+async function invia(url, corpo) {
+  const r = await fetch(url, {method: "POST", cache: "no-store",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpo)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.errore || "errore " + r.status);
+  return j;
+}
+function chiediPin() {
+  return window.__pin ? ($("f-pin").value || prompt("PIN")) : undefined;
+}
+
+const dlg = $("dlg");
+$("btn-rabbocco").addEventListener("click", () => {
+  $("f-err").textContent = "";
+  $("f-capa").textContent = window.__capaKg ? window.__capaKg : "–";
+  $("f-pin-box").hidden = !window.__pin;
+  $("f-pieno").checked = true; $("f-dopo-box").hidden = true;
+  dlg.showModal();
+});
+$("f-no").addEventListener("click", () => dlg.close());
+$("f-pieno").addEventListener("change", e => { $("f-dopo-box").hidden = e.target.checked; });
+$("frm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("f-ok").disabled = true; $("f-err").textContent = "";
+  try {
+    await invia("api/rabbocco", {
+      kg_aggiunti: $("f-agg").value, livello_prima: $("f-liv").value,
+      pieno: $("f-pieno").checked, kg_dopo: $("f-dopo").value, pin: chiediPin()});
+    dlg.close(); $("f-agg").value = ""; await aggiorna();
+  } catch (err) { $("f-err").textContent = err.message; }
+  $("f-ok").disabled = false;
+});
+$("btn-annulla").addEventListener("click", async () => {
+  if (!confirm("Annullare l'ultimo rabbocco registrato?")) return;
+  $("err-annulla").textContent = "";
+  try { await invia("api/rabbocco/annulla", {pin: chiediPin()}); await aggiorna(); }
+  catch (err) { $("err-annulla").textContent = err.message; }
+});
+
 aggiorna();
 setInterval(aggiorna, 60000);
 let rid; addEventListener("resize", () => { clearTimeout(rid); rid = setTimeout(aggiorna, 250); });

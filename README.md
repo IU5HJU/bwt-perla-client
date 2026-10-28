@@ -24,21 +24,47 @@ Prima di collegarti chiudi l'app BWT e disattiva il Bluetooth sugli altri
 telefoni: con una connessione attiva l'addolcitore non è più visibile.
 Il segnale è debole (~ -80 dBm): tieni l'adattatore entro pochi metri.
 
-## Registrazione e stima del sale
+## Rabbocco del sale e stima
 
-Il modello in uso riporta sempre 0 g di sale (anche la vecchia app BWT mostrava
-0), quindi il residuo e' **stimato**:
-`kg messi - rigenerazioni dal rabbocco x g per rigenerazione`.
-Dopo ogni rabbocco lancia `salt-refill KG`; se il rabbocco e' gia' avvenuto da un
-po', `salt-refill KG --used-regens N` tiene conto delle N rigenerazioni passate.
-Il parametro globale `--data-dir` (prima del comando) cambia la cartella dei dati.
+Il modello in uso riporta sempre 0 g di sale (anche la vecchia app BWT
+mostrava 0), quindi il livello e' **stimato** partendo dai rabbocchi:
+`kg dopo il rabbocco - rigenerazioni dal rabbocco x consumo per rigenerazione`.
+
+Ogni rabbocco e' una misura reale. Si registra dal pulsante **Rabbocco sale**
+della pagina web, oppure da riga di comando:
+
+```
+python bwt_perla.py salt-refill 14 --aggiunti 9.5 --livello riserva
+```
+- `14`: kg nel serbatoio *dopo* il rabbocco (nella pagina: "riempito al massimo");
+- `--aggiunti`: kg versati, serve alla calibrazione;
+- `--livello`: com'era il sale prima: `riserva` (acqua di salamoia visibile sul
+  fondo, il momento in cui di solito si rabbocca), `abbondante`, `sconosciuto`;
+- `--used-regens N`: rigenerazioni gia' avvenute, se il rabbocco e' stato fatto
+  prima di registrarlo.
+
+Tra due rabbocchi si conoscono le rigenerazioni avvenute e i kg rimessi: se ne
+ricavano il **consumo reale per rigenerazione** (all'inizio vale quello
+dichiarato dall'apparecchio, 1200 g) e la **soglia di riserva**, cioe' il livello
+a cui rabbocchi davvero (all'inizio provvisoria, 25% del serbatoio). Cicli con
+meno di 3 rigenerazioni o con un consumo incoerente (fuori da 0,3-3 volte il
+valore dichiarato, per esempio un kg digitato male) vengono scartati e
+segnalati. Lo stato del sale e' `ok`, `avviso` (riserva entro 7 giorni) o
+`riserva`: l'esaurimento non e' mai lo scenario previsto.
+
+I rabbocchi stanno in `rabbocchi.json`, a parte, cosi' non vanno persi se li
+registri mentre il servizio di registrazione e' in funzione. Un rabbocco sbagliato
+si annulla dalla pagina (Storico rabbocchi) o a mano modificando il file.
+
+## Registrazione
 
 In `~/bwt-data/`:
 - `cicli.csv`: una riga per lettura (litri, rigenerazioni, sale stimato,
   autonomia, BROADCAST grezzo per studiare il campo del sale);
 - `quarti.csv`: ogni quarto d'ora letto (orario *approssimato*, l'orologio
   dell'apparecchio non e' noto);
-- `state.json`: contatori e rabbocco.
+- `state.json`: contatori;
+- `rabbocchi.json`: i rabbocchi di sale.
 
 Il primo avvio non conta il passato: parte da "adesso". Per l'avvio automatico
 al boot vedi `deploy/bwt-perla-log.service`.
@@ -58,8 +84,10 @@ ferma da piu' di 45 minuti. Solo libreria standard, nessun accesso a internet.
 La porta predefinita e' 8765 (`--port` per cambiarla): controlla prima che sia libera
 con `sudo ss -tlnp`.
 
-**Sicurezza:** sola lettura e senza password. Usala solo in rete locale, non
-esporla a internet. Per l'avvio al boot: `deploy/bwt-perla-web.service`.
+**Sicurezza:** la pagina legge soltanto, salvo registrare o annullare un
+rabbocco. Non ha password: usala solo in rete locale, non esporla a internet.
+Con `--pin 1234` registrare e annullare chiedono il PIN (i dati restano visibili a
+tutti). Le richieste di scrittura accettano solo JSON dallo stesso sito. Per l'avvio al boot: `deploy/bwt-perla-web.service`.
 L'API JSON e' su `/api/riepilogo`.
 
 ## Stato

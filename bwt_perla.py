@@ -7,7 +7,7 @@ Uso:
   python bwt_perla.py read [MAC]        # stato + ultimi consumi
   python bwt_perla.py dump [MAC]        # trame grezze, per analisi
   python bwt_perla.py log [MAC]         # lettura periodica -> CSV in ~/bwt-data
-  python bwt_perla.py salt-refill KG    # registra un rabbocco di sale
+  python bwt_perla.py salt-refill KG    # registra un rabbocco (vedi --help)
   python bwt_perla.py status            # ultima riga registrata
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
@@ -215,10 +215,17 @@ async def cmd_log(mac, data_dir, interval, once):
         await asyncio.sleep(interval)
 
 
-def cmd_salt_refill(kg, used_regens, data_dir):
-    r = Tracker(data_dir).rabbocco(kg, used_regens)
-    print(f"Rabbocco registrato: {r['kg']} kg il {r['data']} "
-          f"(rigenerazioni gia' usate: {used_regens})")
+def cmd_salt_refill(kg_dopo, aggiunti, livello, used_regens, data_dir):
+    try:
+        r = Tracker(data_dir).rabbocco(kg_dopo, used_regens,
+                                       kg_aggiunti=aggiunti, livello_prima=livello)
+    except ValueError as e:
+        raise SystemExit(f"Rabbocco non registrato: {e}")
+    agg = "?" if r["kg_aggiunti"] is None else r["kg_aggiunti"]
+    print(f"Rabbocco registrato il {r['data']}: {r['kg_dopo']} kg nel serbatoio, "
+          f"{agg} kg aggiunti, livello prima: {r['livello_prima']}")
+    if aggiunti is None:
+        print("Suggerimento: indica --aggiunti per calibrare il consumo reale.")
 
 
 def cmd_status(data_dir):
@@ -229,7 +236,17 @@ def cmd_status(data_dir):
     for k, v in r.items():
         if k != "broadcast_hex":
             print(f"  {k}: {v}")
-    print("  rabbocco:", tr.state["rabbocco"] or "non registrato (usa salt-refill)")
+    a = tr.analisi()
+    if not a:
+        print("  sale: nessun rabbocco registrato (usa salt-refill)")
+        return
+    print(f"  sale: stato {a['stato']}, residuo stimato {a['residuo_g'] / 1000:.1f} kg "
+          f"({a['pct']}%), riserva a {a['riserva_g'] / 1000:.1f} kg "
+          f"({'misurata' if a['riserva_calibrata'] else 'provvisoria'})")
+    print(f"  consumo per rigenerazione: {a['g_per_rigenerazione']} g "
+          f"({'misurato su ' + str(a['cicli_misurati']) + ' cicli' if a['g_calibrato'] else 'valore dell apparecchio'})")
+    print(f"  giorni alla riserva: {a['giorni_a_riserva']}, "
+          f"all'esaurimento teorico: {a['giorni_a_esaurimento']}")
 
 
 def selftest():
@@ -256,7 +273,14 @@ def main():
     lg.add_argument("--interval", type=int, default=900, help="secondi (def. 900)")
     lg.add_argument("--once", action="store_true", help="una sola lettura")
     rf = sub.add_parser("salt-refill")
-    rf.add_argument("kg", type=float)
+    rf.add_argument("kg", type=float,
+                    help="kg nel serbatoio DOPO il rabbocco (es. 14 se pieno)")
+    rf.add_argument("--aggiunti", type=float, default=None,
+                    help="kg di sale versati: serve a calibrare i consumi reali")
+    rf.add_argument("--livello", choices=("abbondante", "riserva", "sconosciuto"),
+                    default="sconosciuto",
+                    help="livello prima del rabbocco; 'riserva' = si vedeva "
+                         "l'acqua di salamoia sul fondo")
     rf.add_argument("--used-regens", type=int, default=0,
                     help="rigenerazioni gia' avvenute dal rabbocco reale")
     a = ap.parse_args()
@@ -271,7 +295,7 @@ def main():
         except KeyboardInterrupt:
             pass
     elif a.cmd == "salt-refill":
-        cmd_salt_refill(a.kg, a.used_regens, a.data_dir)
+        cmd_salt_refill(a.kg, a.aggiunti, a.livello, a.used_regens, a.data_dir)
     elif a.cmd == "status":
         cmd_status(a.data_dir)
     elif a.cmd == "selftest":
