@@ -6,14 +6,23 @@ Uso:
   python bwt_perla.py scan
   python bwt_perla.py read [MAC]        # stato + ultimi consumi
   python bwt_perla.py dump [MAC]        # trame grezze, per analisi
+  python bwt_perla.py log [MAC]         # lettura periodica -> CSV in ~/bwt-data
+  python bwt_perla.py salt-refill KG    # registra un rabbocco di sale
+  python bwt_perla.py status            # ultima riga registrata
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
 questo file ne eredita la licenza (GPLv3).
 """
+from __future__ import annotations
+
+import argparse
 import asyncio
 import sys
+from datetime import datetime
 
 from bleak import BleakClient, BleakScanner
+
+from tracker import Tracker
 
 U_SERVICE = "d973f2e0-b19e-11e2-9e96-0800200c9a66"
 U_NOTIFY = "d973f2e1-b19e-11e2-9e96-0800200c9a66"     # storico (notify)
@@ -173,6 +182,56 @@ async def cmd_read(mac, dump=False):
         print("  ", [e["litri"] for e in d])
 
 
+async def ciclo(mac: str, tr: Tracker) -> dict:
+    """Una lettura: BROADCAST, quarti nuovi, ultimi 30 giorni -> CSV."""
+    async with BleakClient(mac, timeout=30) as cl:
+        p = Perla(cl)
+        await p.open()
+        raw = await p.broadcast()
+        b = decode_broadcast(raw)
+        n = tr.quarti_da_leggere(b["idx_quarti"])
+        q = await p.history(ADDR_QUARTI, MAX_QUARTI, b["idx_quarti"], n, True) if n else []
+        d = await p.history(ADDR_GIORNI, MAX_GIORNI, b["idx_giorni"], 30, False)
+    return tr.applica(datetime.now(), b, raw, q, d)
+
+
+async def cmd_log(mac, data_dir, interval, once):
+    addr = await find(mac)
+    tr = Tracker(data_dir)
+    print(f"Registro in {tr.dir} ogni {interval} s (Ctrl+C per fermare)")
+    while True:
+        try:
+            r = await ciclo(addr, tr)
+            print(f"{r['timestamp']}  +{r['litri_nuovi']} L  tot {r['litri_totali']} L  "
+                  f"rigen {r['rigenerazioni_totali']}  sale stimato "
+                  f"{r['sale_stimato_g'] or '-'} g  autonomia {r['autonomia_giorni'] or '-'} gg",
+                  flush=True)
+        except Exception as e:   # segnale debole: si riprova al ciclo dopo
+            print(f"{datetime.now():%H:%M:%S}  lettura fallita: {e!r}", flush=True)
+            if once:
+                raise SystemExit(1)
+        if once:
+            return
+        await asyncio.sleep(interval)
+
+
+def cmd_salt_refill(kg, used_regens, data_dir):
+    r = Tracker(data_dir).rabbocco(kg, used_regens)
+    print(f"Rabbocco registrato: {r['kg']} kg il {r['data']} "
+          f"(rigenerazioni gia' usate: {used_regens})")
+
+
+def cmd_status(data_dir):
+    tr = Tracker(data_dir)
+    r = tr.ultima_riga()
+    if not r:
+        raise SystemExit("Nessun dato: lancia prima 'log'.")
+    for k, v in r.items():
+        if k != "broadcast_hex":
+            print(f"  {k}: {v}")
+    print("  rabbocco:", tr.state["rabbocco"] or "non registrato (usa salt-refill)")
+
+
 def selftest():
     # trama sintetica: rango 0, parole (big-endian) 100, 0x0800|5, 0xFFFF
     f = bytes([0, 0, 0, 100, 0x08, 5, 0xFF, 0xFF]) + bytes(12)
@@ -183,13 +242,41 @@ def selftest():
     print("selftest ok")
 
 
-if __name__ == "__main__":
-    a = sys.argv[1:] or ["scan"]
-    if a[0] == "scan":
+def main():
+    ap = argparse.ArgumentParser(description="Client BLE BWT AQA Perla")
+    ap.add_argument("--data-dir", default="~/bwt-data")
+    sub = ap.add_subparsers(dest="cmd")
+    sub.add_parser("scan")
+    sub.add_parser("selftest")
+    sub.add_parser("status")
+    for name in ("read", "dump"):
+        sub.add_parser(name).add_argument("mac", nargs="?")
+    lg = sub.add_parser("log")
+    lg.add_argument("mac", nargs="?")
+    lg.add_argument("--interval", type=int, default=900, help="secondi (def. 900)")
+    lg.add_argument("--once", action="store_true", help="una sola lettura")
+    rf = sub.add_parser("salt-refill")
+    rf.add_argument("kg", type=float)
+    rf.add_argument("--used-regens", type=int, default=0,
+                    help="rigenerazioni gia' avvenute dal rabbocco reale")
+    a = ap.parse_args()
+
+    if a.cmd in (None, "scan"):
         asyncio.run(cmd_scan())
-    elif a[0] in ("read", "dump"):
-        asyncio.run(cmd_read(a[1] if len(a) > 1 else None, a[0] == "dump"))
-    elif a[0] == "selftest":
+    elif a.cmd in ("read", "dump"):
+        asyncio.run(cmd_read(a.mac, a.cmd == "dump"))
+    elif a.cmd == "log":
+        try:
+            asyncio.run(cmd_log(a.mac, a.data_dir, a.interval, a.once))
+        except KeyboardInterrupt:
+            pass
+    elif a.cmd == "salt-refill":
+        cmd_salt_refill(a.kg, a.used_regens, a.data_dir)
+    elif a.cmd == "status":
+        cmd_status(a.data_dir)
+    elif a.cmd == "selftest":
         selftest()
-    else:
-        print(__doc__)
+
+
+if __name__ == "__main__":
+    main()

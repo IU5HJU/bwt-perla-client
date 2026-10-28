@@ -1,0 +1,21 @@
+# Installazione (sostituisci UTENTE e il percorso se diversi):
+#   sudo cp deploy/bwt-perla-log.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bwt-perla-log
+#   journalctl -u bwt-perla-log -f
+[Unit]
+Description=BWT Perla - registrazione periodica
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+User=UTENTE
+WorkingDirectory=/home/UTENTE/iu5hju-bwt-perla-client
+ExecStartPre=/usr/sbin/rfkill unblock bluetooth
+ExecStartPre=/usr/bin/hciconfig hci0 up
+ExecStart=/home/UTENTE/iu5hju-bwt-perla-client/.venv/bin/python bwt_perla.py log 03:12:00:2E:00:59 --interval 900
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
