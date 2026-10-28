@@ -32,7 +32,10 @@ STATE_JSON = "state.json"
 RABBOCCHI_JSON = "rabbocchi.json"
 
 LIVELLI = ("abbondante", "riserva", "sconosciuto")
-RISERVA_PROVVISORIA = 0.25   # frazione del serbatoio, finche' non c'e' una misura
+# Frazione del serbatoio, finche' non c'e' una misura. Ricavata dall'abitudine
+# dichiarata (rabbocco ogni ~40 giorni con ~320 g/giorno di consumo: restano
+# ~1,2 kg, cioe' l'8-9%); il primo rabbocco "in riserva" misurato la sostituisce.
+RISERVA_PROVVISORIA = 0.10
 GIORNI_AVVISO = 7            # preavviso prima di arrivare in riserva
 MIN_RIGEN_CICLO = 3          # rigenerazioni minime per fidarsi di un ciclo
 MIN_LITRI_CICLO = 300        # litri minimi per misurare i grammi per litro

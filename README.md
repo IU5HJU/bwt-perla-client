@@ -54,7 +54,7 @@ rigenerazione e' proporzionale alla resina esaurita (rigenera solo la parte
 consumata, al massimo ogni 7 giorni), quindi il sale usato segue i litri e non il
 numero di rigenerazioni. Finche' non c'e' un ciclo misurato si usa il valore
 dichiarato dall'apparecchio per rigenerazione (1200 g) e una riserva provvisoria
-(25% del serbatoio): i banner lo dicono ("stima provvisoria"). Cicli con troppo
+(10% del serbatoio, ricavato da un rabbocco ogni ~40 giorni): i banner lo dicono ("stima provvisoria"). Cicli con troppo
 pochi litri o rigenerazioni, o con un consumo incoerente (per esempio un kg
 digitato male), vengono scartati e segnalati. Lo stato del sale e' `ok`, `avviso`
 (riserva entro 7 giorni) o `riserva`: l'esaurimento non e' mai lo scenario previsto.
