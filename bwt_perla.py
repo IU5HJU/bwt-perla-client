@@ -52,13 +52,17 @@ def decode_broadcast(b: bytes) -> dict:
     }
 
 
+def w_be(b, o):
+    return (b[o] << 8) | b[o + 1]
+
+
 def decode_frame(f: bytes, quarti: bool):
-    """Trama da 20 byte: 2 byte di rango + 9 parole little-endian."""
+    """Trama da 20 byte: rango (2 byte LE) + 9 parole di storico big-endian."""
     if len(f) < 20:
         return []
     out = []
     for i in range(9):
-        w = w_le(f, 2 + 2 * i)
+        w = w_be(f, 2 + 2 * i)
         if w > 32767:       # 0xFFFF = cella non scritta
             break
         if quarti:
@@ -170,8 +174,8 @@ async def cmd_read(mac, dump=False):
 
 
 def selftest():
-    # trama sintetica: rango 0, parole 100, 0x0800|5, 0xFFFF
-    f = bytes([0, 0, 100, 0, 5, 0x08, 0xFF, 0xFF]) + bytes(12)
+    # trama sintetica: rango 0, parole (big-endian) 100, 0x0800|5, 0xFFFF
+    f = bytes([0, 0, 0, 100, 0x08, 5, 0xFF, 0xFF]) + bytes(12)
     e = decode_frame(f, True)
     assert e[0]["litri"] == 100 and e[1]["rigen"] and len(e) == 2, e
     bc = bytes([0xE8, 0x03, 0, 0, 1, 0, 2, 0, 50, 0, 10, 0, 0, 1, 5])
