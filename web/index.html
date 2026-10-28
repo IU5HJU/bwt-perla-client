@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Addolcitore BWT</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1c2230; --muted: #667085;
+    --line: #e4e7ec; --accent: #1f6feb; --warn: #b54708; --warn-bg: #fff4e5;
+    --ok: #067647; --bad: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #98a2b3;
+      --line: #2a3140; --accent: #5b9dff; --warn: #fdb022; --warn-bg: #3a2c0f;
+      --ok: #47cd89; --bad: #f97066;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline;
+           flex-wrap: wrap; gap: 4px 16px; margin-bottom: 12px; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  h2 { font-size: 1rem; margin: 0 0 8px; }
+  .sub { color: var(--muted); font-size: .85rem; }
+  .avviso { background: var(--warn-bg); color: var(--warn); border-radius: 8px;
+            padding: 10px 12px; margin-bottom: 12px; font-size: .9rem; }
+  .griglia { display: grid; gap: 12px;
+             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line);
+          border-radius: 12px; padding: 14px; }
+  .grande { font-size: 1.9rem; font-weight: 650; line-height: 1.15; }
+  .unit { font-size: 1rem; font-weight: 400; color: var(--muted); }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .barra { height: 10px; border-radius: 5px; background: var(--line);
+           overflow: hidden; margin: 8px 0 4px; }
+  .barra > div { height: 100%; background: var(--accent); }
+  section { margin-top: 12px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  svg { overflow: visible; }
+  .assi { stroke: var(--line); }
+  .barra-g { fill: var(--accent); }
+  .linea { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .evento { fill: var(--bad); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+        padding: 10px; overflow-x: auto; font-size: .8rem; }
+  .vuoto { color: var(--muted); padding: 24px 0; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Addolcitore BWT Perla</h1>
+    <span class="sub" id="aggiornato">in caricamento…</span>
+  </header>
+  <div id="avviso" class="avviso" hidden></div>
+
+  <div class="griglia">
+    <div class="card">
+      <h2>Sale (stimato)</h2>
+      <div class="grande"><span id="sale-pct">–</span><span class="unit">%</span></div>
+      <div class="barra"><div id="sale-barra" style="width:0"></div></div>
+      <div class="muted" id="sale-dett">Nessun rabbocco registrato</div>
+    </div>
+    <div class="card">
+      <h2>Autonomia</h2>
+      <div class="grande"><span id="autonomia">–</span><span class="unit"> giorni</span></div>
+      <div class="muted" id="autonomia-dett"></div>
+    </div>
+    <div class="card">
+      <h2>Consumo oggi</h2>
+      <div class="grande"><span id="oggi">–</span><span class="unit"> L</span></div>
+      <div class="muted" id="oggi-dett"></div>
+    </div>
+    <div class="card">
+      <h2>Rigenerazioni</h2>
+      <div class="grande"><span id="regen">–</span></div>
+      <div class="muted" id="regen-dett">da quando registro</div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Consumo per giorno (L)</h2>
+    <svg id="g-giorni" viewBox="0 0 640 200" role="img" aria-label="Consumo giornaliero"></svg>
+  </section>
+  <section class="card">
+    <h2>Consumo per ora, ultime 48 ore (L)</h2>
+    <svg id="g-ore" viewBox="0 0 640 180" role="img" aria-label="Consumo orario"></svg>
+  </section>
+  <section class="card">
+    <h2>Sale stimato nel tempo (kg)</h2>
+    <svg id="g-sale" viewBox="0 0 640 180" role="img" aria-label="Sale stimato"></svg>
+  </section>
+
+  <details>
+    <summary>Dati tecnici dell'ultima lettura</summary>
+    <pre id="tecnici"></pre>
+  </details>
+  <p class="muted">Il sale è una stima: rabbocco meno rigenerazioni × grammi per
+  rigenerazione. L'apparecchio riporta sempre 0 g. Gli orari dei quarti d'ora sono
+  approssimati.</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+const fmt = n => (n === null || n === undefined || n === "") ? "–"
+  : Number(n).toLocaleString("it-IT");
+
+function larg(svg) { return Math.max(300, Math.round(svg.parentElement.clientWidth - 28)); }
+
+function bars(svg, items, labelFn, W, H, evento) {
+  W = larg(svg);
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  svg.replaceChildren();
+  if (!items.length) {
+    svg.appendChild(el("text", {x: W / 2, y: H / 2, "text-anchor": "middle"}, "Nessun dato"));
+    return;
+  }
+  const L = 38, B = 22, T = 8, R = 6;
+  const max = Math.max(10, ...items.map(i => i.v));
+  const w = (W - L - R) / items.length;
+  for (const f of [0, .5, 1]) {
+    const y = T + (H - T - B) * (1 - f);
+    svg.appendChild(el("line", {x1: L, x2: W - R, y1: y, y2: y, class: "assi"}));
+    svg.appendChild(el("text", {x: L - 4, y: y + 4, "text-anchor": "end"}, fmt(Math.round(max * f))));
+  }
+  items.forEach((it, i) => {
+    const h = (H - T - B) * it.v / max;
+    const r = el("rect", {x: L + i * w + w * .12, y: H - B - h, width: w * .76,
+                          height: Math.max(h, 0), rx: 2, class: "barra-g"});
+    r.appendChild(el("title", {}, it.tip));
+    svg.appendChild(r);
+    if (evento && it.ev) svg.appendChild(el("circle", {cx: L + i * w + w / 2, cy: H - B + 8, r: 3, class: "evento"}));
+  });
+  const passo = Math.max(1, Math.ceil(items.length / Math.max(3, Math.floor(W / 70))));
+  items.forEach((it, i) => {
+    if (i % passo === 0)
+      svg.appendChild(el("text", {x: L + i * w + w / 2, y: H - 4, "text-anchor": "middle"}, labelFn(it)));
+  });
+}
+
+function linea(svg, punti, W, H) {
+  W = larg(svg);
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  svg.replaceChildren();
+  if (punti.length < 2) {
+    svg.appendChild(el("text", {x: W / 2, y: H / 2, "text-anchor": "middle"},
+      "Servono almeno due letture dopo il rabbocco"));
+    return;
+  }
+  const L = 38, B = 22, T = 8, R = 8;
+  const t0 = punti[0].t, t1 = punti[punti.length - 1].t || t0 + 1;
+  const max = Math.max(1, ...punti.map(p => p.kg));
+  for (const f of [0, .5, 1]) {
+    const y = T + (H - T - B) * (1 - f);
+    svg.appendChild(el("line", {x1: L, x2: W - R, y1: y, y2: y, class: "assi"}));
+    svg.appendChild(el("text", {x: L - 4, y: y + 4, "text-anchor": "end"}, (max * f).toFixed(1)));
+  }
+  const d = punti.map((p, i) => {
+    const x = L + (W - L - R) * (p.t - t0) / Math.max(1, t1 - t0);
+    const y = T + (H - T - B) * (1 - p.kg / max);
+    return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+  }).join(" ");
+  svg.appendChild(el("path", {d, class: "linea"}));
+  const dt = x => new Date(x).toLocaleDateString("it-IT", {day: "2-digit", month: "2-digit"});
+  svg.appendChild(el("text", {x: L, y: H - 4}, dt(t0)));
+  svg.appendChild(el("text", {x: W - R, y: H - 4, "text-anchor": "end"}, dt(t1)));
+}
+
+function mostra(d) {
+  const u = d.ultima;
+  $("aggiornato").textContent = u
+    ? "Ultima lettura: " + new Date(u.timestamp).toLocaleString("it-IT") : "Nessuna lettura";
+
+  const av = $("avviso");
+  if (!u) {
+    av.hidden = false;
+    av.textContent = "Nessun dato: avvia la registrazione con «python bwt_perla.py log».";
+  } else if (d.eta_ultima_lettura_min > 45) {
+    av.hidden = false;
+    av.textContent = "L'ultima lettura risale a " + d.eta_ultima_lettura_min +
+      " minuti fa: controlla che la registrazione sia attiva e l'addolcitore raggiungibile.";
+  } else av.hidden = true;
+
+  if (u && u.sale_stimato_pct !== "") {
+    $("sale-pct").textContent = u.sale_stimato_pct;
+    $("sale-barra").style.width = Math.min(100, u.sale_stimato_pct) + "%";
+    $("sale-dett").textContent = fmt((u.sale_stimato_g / 1000).toFixed(1)) +
+      " kg · rabbocco di " + d.rabbocco.kg + " kg del " +
+      new Date(d.rabbocco.data).toLocaleDateString("it-IT");
+  } else {
+    $("sale-pct").textContent = "–";
+    $("sale-barra").style.width = "0";
+    $("sale-dett").textContent = "Nessun rabbocco registrato (salt-refill)";
+  }
+  $("autonomia").textContent = fmt(u && u.autonomia_giorni);
+  $("autonomia-dett").textContent = u && u.rigenerazioni_al_giorno_30g !== ""
+    ? "con " + u.rigenerazioni_al_giorno_30g + " rigenerazioni/giorno (media 30 giorni)" : "";
+
+  const oggi = d.giorni.length ? d.giorni[d.giorni.length - 1] : null;
+  $("oggi").textContent = fmt(oggi && oggi.litri);
+  $("oggi-dett").textContent = d.media_litri_giorno_7g
+    ? "media giornaliera " + fmt(d.media_litri_giorno_7g) + " L (ultimi giorni completi)" : "giorno in corso";
+  $("regen").textContent = fmt(d.totali.rigenerazioni);
+  $("regen-dett").textContent = "blackout: " + fmt(d.totali.blackout) +
+    " · acqua registrata: " + fmt(d.totali.litri) + " L";
+
+  bars($("g-giorni"), d.giorni.map(g => ({
+    v: g.litri, ev: g.rigenerazioni > 0,
+    tip: g.giorno + ": " + g.litri + " L" + (g.rigenerazioni ? " · rigenerazione" : ""),
+    g: g.giorno
+  })), i => i.g.slice(8, 10) + "/" + i.g.slice(5, 7), 640, 200, true);
+
+  bars($("g-ore"), d.ore.map(o => ({
+    v: o.litri, tip: o.ora.replace("T", " ") + ":00 – " + o.litri + " L", o: o.ora
+  })), i => i.o.slice(11, 13), 640, 180, false);
+
+  linea($("g-sale"), d.sale.filter(s => s.g !== null)
+    .map(s => ({t: new Date(s.t).getTime(), kg: s.g / 1000})), 640, 180);
+
+  $("tecnici").textContent = u ? [
+    "indice quarti: " + u.idx_quarti, "indice giorni: " + u.idx_giorni,
+    "sale dispositivo (g): " + u.sale_dispositivo_g,
+    "BROADCAST: " + u.broadcast_hex
+  ].join("\n") : "";
+}
+
+async function aggiorna() {
+  try {
+    const r = await fetch("api/riepilogo", {cache: "no-store"});
+    mostra(await r.json());
+  } catch (e) {
+    $("avviso").hidden = false;
+    $("avviso").textContent = "Impossibile leggere i dati dal server.";
+  }
+}
+aggiorna();
+setInterval(aggiorna, 60000);
+let rid; addEventListener("resize", () => { clearTimeout(rid); rid = setTimeout(aggiorna, 250); });
+</script>
+</body>
+</html>
