@@ -10,10 +10,10 @@ Wants=bluetooth.target
 
 [Service]
 User=UTENTE
-WorkingDirectory=/home/UTENTE/iu5hju-bwt-perla-client
-ExecStartPre=/usr/sbin/rfkill unblock bluetooth
-ExecStartPre=/usr/bin/hciconfig hci0 up
-ExecStart=/home/UTENTE/iu5hju-bwt-perla-client/.venv/bin/python bwt_perla.py log 03:12:00:2E:00:59 --interval 900
+WorkingDirectory=/home/UTENTE/bwt-perla-client
+# "+" = eseguito come root (serve per accendere il Bluetooth), "-" = errore ignorato
+ExecStartPre=-+/bin/sh -c 'rfkill unblock bluetooth; hciconfig hci0 up'
+ExecStart=/home/UTENTE/bwt-perla-client/.venv/bin/python bwt_perla.py log 03:12:00:2E:00:59 --interval 900
 Restart=on-failure
 RestartSec=60
 
