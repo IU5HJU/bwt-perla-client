@@ -1,0 +1,18 @@
+# Installazione (sostituisci UTENTE e il percorso se diversi):
+#   sudo cp deploy/bwt-perla-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bwt-perla-web
+#   journalctl -u bwt-perla-web -f
+[Unit]
+Description=BWT Perla - pagina web
+After=network.target
+
+[Service]
+User=UTENTE
+WorkingDirectory=/home/UTENTE/iu5hju-bwt-perla-client
+ExecStart=/home/UTENTE/iu5hju-bwt-perla-client/.venv/bin/python web.py --port 8080
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
