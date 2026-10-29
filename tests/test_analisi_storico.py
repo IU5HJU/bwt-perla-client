@@ -74,6 +74,25 @@ class RiepilogoTest(unittest.TestCase):
         weekend = (gs["sab"]["media"] + gs["dom"]["media"]) / 2
         self.assertGreater(weekend, feriali * 1.2)
 
+    def test_il_picco_del_fine_settimana_sta_su_sab_dom_in_ogni_anno(self):
+        r = storico.riepilogo(giorni_sintetici(), "2023-03-22")
+        for anno, v in r["per_anno_giorno_settimana"].items():
+            primi = sorted(v, key=v.get, reverse=True)[:2]
+            self.assertEqual(set(primi), {"sab", "dom"}, anno)
+
+    def test_giorni_con_piu_rigenerazioni_e_blackout(self):
+        righe = giorni_sintetici()
+        for r in righe:
+            if r["data"] == "2023-05-31":
+                r.update(rigenerazioni=3, litri=490, blackout=1)
+        r = storico.riepilogo(righe, "2023-03-22")
+        self.assertEqual(r["giorni_con_piu_rigenerazioni"],
+                         [{"data": "2023-05-31", "litri": 490, "rigenerazioni": 3}])
+        self.assertEqual(r["giorni_blackout"], 1)
+        testo = "\n".join(storico.righe_riepilogo(r))
+        self.assertIn("2023-05-31 (3 rigen., 490 L)", testo)
+        self.assertIn("anno per anno", testo)
+
     def test_tutto_prima_della_messa_in_servizio(self):
         self.assertEqual(storico.riepilogo(giorni_sintetici(), "2030-01-01"), {"giorni_esclusi": 1825})
         self.assertEqual(storico.riepilogo([], "2023-03-22"), {})

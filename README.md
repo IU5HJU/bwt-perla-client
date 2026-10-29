@@ -170,7 +170,7 @@ dalle medie. La data si salva in `config.json` e le volte dopo non serve piu'
 indicarla (vale anche per `storico`). Il comando stampa media e mediana sui giorni
 in servizio e sui soli giorni con consumo, i giorni a zero (assenze), le
 rigenerazioni (una ogni N giorni), la media per giorno della settimana, i totali
-per anno e per mese dell'anno e il **profilo orario** (litri medi per ora, feriali
+per anno e per mese dell'anno, la media per giorno della settimana **anno per anno** (serve a controllare la datazione: il picco del fine settimana deve stare su sab/dom in tutti gli anni), i giorni con due o piu' rigenerazioni e con interruzioni di corrente (interventi, prove di avvio) e il **profilo orario** (litri medi per ora, feriali
 contro fine settimana, sugli ultimi 30 giorni a quarti d'ora).
 
 **Limiti.** Gli orari dei quarti sono approssimati come nella registrazione

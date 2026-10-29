@@ -131,11 +131,13 @@ def riepilogo(righe: list[dict], dal: str | None = None) -> dict:
         return round(statistics.mean(v), 1) if v else None
 
     per_gs, per_mese, per_anno = defaultdict(list), defaultdict(list), defaultdict(list)
+    per_anno_gs = defaultdict(lambda: defaultdict(list))
     for r in righe:
         d = datetime.fromisoformat(r["data"])
         per_gs[d.weekday()].append(r["litri"])
         per_mese[d.month].append(r["litri"])
         per_anno[d.year].append(r)
+        per_anno_gs[d.year][d.weekday()].append(r["litri"])
     litri = [r["litri"] for r in righe]
     con_consumo = [v for v in litri if v > 0]
     rig = sum(r["rigenerazioni"] for r in righe)
@@ -153,6 +155,14 @@ def riepilogo(righe: list[dict], dal: str | None = None) -> dict:
                                  for i, v in sorted(per_gs.items())},
         "per_mese_dell_anno": {m: {"giorni": len(v), "media": media(v)}
                                for m, v in sorted(per_mese.items())},
+        # se la datazione dei giorni fosse sfalsata, il picco del fine settimana
+        # non starebbe su sab/dom in tutti gli anni: serve a controllarla
+        "per_anno_giorno_settimana": {a: {GIORNI_SETTIMANA[i]: media(v) for i, v in sorted(g.items())}
+                                      for a, g in sorted(per_anno_gs.items())},
+        "giorni_con_piu_rigenerazioni": [{"data": r["data"], "litri": r["litri"],
+                                          "rigenerazioni": r["rigenerazioni"]}
+                                         for r in righe if r["rigenerazioni"] >= 2],
+        "giorni_blackout": sum(1 for r in righe if r.get("blackout")),
         "per_anno": {a: {"giorni": len(v), "media": media([r["litri"] for r in v]),
                          "giorni_a_zero": sum(1 for r in v if r["litri"] == 0),
                          "rigenerazioni": sum(r["rigenerazioni"] for r in v)}
@@ -209,6 +219,16 @@ def righe_riepilogo(r: dict, profilo: dict | None = None) -> list[str]:
     out.append("Per anno (giorni, media L/giorno, giorni a zero, rigenerazioni):")
     out += [f"  {a}: {v['giorni']:4d} gg  {v['media']:6} L  {v['giorni_a_zero']:3d} a zero  "
             f"{v['rigenerazioni']:3d} rigen." for a, v in r["per_anno"].items()]
+    out.append("Media per giorno della settimana, anno per anno (il picco del fine settimana "
+               "deve stare su sab/dom in tutti gli anni, altrimenti le date sono sfalsate):")
+    out.append("        " + "".join(f"{n:>7}" for n in GIORNI_SETTIMANA))
+    for a, v in r["per_anno_giorno_settimana"].items():
+        out.append(f"  {a}  " + "".join(f"{v.get(n, 0):7.0f}" for n in GIORNI_SETTIMANA))
+    if r["giorni_con_piu_rigenerazioni"]:
+        out.append("Giorni con 2 o piu' rigenerazioni (interventi, prove): " + "; ".join(
+            f"{g['data']} ({g['rigenerazioni']} rigen., {g['litri']} L)"
+            for g in r["giorni_con_piu_rigenerazioni"]))
+    out.append(f"Giorni con interruzione di corrente: {r['giorni_blackout']}.")
     mesi = ("gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic")
     out.append("Per mese dell'anno (media L/giorno su tutti gli anni):")
     out.append("  " + "  ".join(f"{mesi[m - 1]} {v['media']:.0f}" for m, v in r["per_mese_dell_anno"].items()))
