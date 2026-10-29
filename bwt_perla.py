@@ -10,6 +10,7 @@ Uso:
   python bwt_perla.py salt-refill KG    # registra un rabbocco (vedi --help)
   python bwt_perla.py status            # ultima riga registrata
   python bwt_perla.py serve             # registrazione + pagina web in un solo processo
+  python bwt_perla.py storico [MAC]     # legge la memoria dell'apparecchio -> CSV (ferma prima il servizio)
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
 questo file ne eredita la licenza (GPLv3).
@@ -25,6 +26,7 @@ from datetime import datetime
 from bleak import BleakClient, BleakScanner
 
 from config import carica_config, salva_config, valida_mac
+import storico
 from tracker import Tracker
 
 U_SERVICE = "d973f2e0-b19e-11e2-9e96-0800200c9a66"
@@ -139,17 +141,38 @@ class Perla:
                 raise RuntimeError(f"blocco incompleto {len(good)}/{n_frames}")
         return good
 
-    async def history(self, base: int, size: int, idx: int, n: int, quarti: bool):
-        """Ultime n voci prima di idx (buffer circolare); ordine cronologico."""
+    async def _blocco_con_tentativi(self, addr: int, n: int, tentativi: int):
+        for t in range(1, tentativi + 1):
+            try:
+                return await self._block(addr, n)
+            except RuntimeError:
+                if t == tentativi:
+                    raise
+                await asyncio.sleep(1.0)
+
+    async def history(self, base: int, size: int, idx: int, n: int, quarti: bool,
+                      tentativi: int = 1, avanza=None):
+        """Ultime n voci prima di idx (buffer circolare); ordine cronologico.
+
+        Ogni blocco si taglia alla sua lunghezza: i frame portano 9 voci, e se un
+        blocco non e' multiplo di 9 (succede quando la lettura attraversa la fine
+        del registro) le voci in piu' vanno scartate, altrimenti si infilerebbero
+        tra i dati e sfalserebbero quelli seguenti.
+        `tentativi` > 1 riprova un blocco perso; `avanza(letti, totale)` e'
+        chiamata dopo ogni blocco (letture lunghe)."""
         n = min(n, size)
         start = (idx - n) % size
         res, pos, left = [], start, n
         while left > 0:
             chunk = min(left, 90, size - pos)   # non oltrepassare la fine
-            for f in await self._block(base + 2 * pos, chunk):
-                res += decode_frame(f, quarti)
+            voci = []
+            for f in await self._blocco_con_tentativi(base + 2 * pos, chunk, tentativi):
+                voci += decode_frame(f, quarti)
+            res += voci[:chunk]
             pos = (pos + chunk) % size
             left -= chunk
+            if avanza:
+                avanza(n - left, n)
         return res[:n]
 
 
@@ -373,6 +396,100 @@ def cmd_serve(mac, data_dir, interval, host, port, pin):
     web.serve(host, port, data_dir, pin)
 
 
+async def _leggi_storico(mac: str, giorni: int):
+    """Legge i due registri; si riprova l'intera sessione se la connessione cade."""
+    ultimo_errore = None
+    for tentativo in range(1, 4):
+        try:
+            async with BleakClient(mac, timeout=30) as cl:
+                p = Perla(cl)
+                await p.open()
+                b = decode_broadcast(await p.broadcast())
+                nq = MAX_QUARTI if b["buffer_quarti_ciclico"] else b["idx_quarti"]
+                ng = min(giorni, MAX_GIORNI if b["buffer_giorni_ciclico"] else b["idx_giorni"])
+
+                def avanza(nome):
+                    return lambda letti, tot: print(f"  {nome}: {letti}/{tot}", end="\r", flush=True)
+
+                print(f"Quarti d'ora ({nq}):")
+                q = await p.history(ADDR_QUARTI, MAX_QUARTI, b["idx_quarti"], nq, True,
+                                    4, avanza("quarti"))
+                print(f"\nGiorni ({ng}):")
+                g = await p.history(ADDR_GIORNI, MAX_GIORNI, b["idx_giorni"], ng, False,
+                                    4, avanza("giorni"))
+                print()
+                return b, q, g
+        except Exception as e:
+            ultimo_errore = e
+            print(f"\nLettura interrotta ({e!r}); tentativo {tentativo}/3", flush=True)
+            await asyncio.sleep(5)
+    raise RuntimeError(f"lettura dello storico non riuscita: {ultimo_errore!r}")
+
+
+async def cmd_storico(mac, data_dir, giorni, adesso=None):
+    addr = mac or carica_config(data_dir).get("mac")
+    if not addr:
+        try:
+            addr = await find(None)
+        except LookupError as e:
+            raise SystemExit(str(e))
+    print(f"Lettura della memoria di {addr}: puo' richiedere qualche minuto.\n"
+          "Se il servizio di registrazione e' attivo fermalo prima "
+          "(sudo systemctl stop bwt-perla): usano la stessa antenna.\n")
+    letto_il = adesso or datetime.now()
+    b, quarti, giorni_v = await _leggi_storico(addr, giorni)
+    if len(quarti) < MAX_QUARTI and b["buffer_quarti_ciclico"]:
+        print(f"Attenzione: letti {len(quarti)} quarti su {MAX_QUARTI}.")
+
+    ql = [x["litri"] for x in quarti]
+    gl = [x["litri"] for x in giorni_v]
+    cal = storico.calibra_rollover(gl, ql)
+    if cal is None:
+        e0 = len(quarti)
+        print("Calibrazione non possibile (pochi dati): date approssimate all'ora di lettura.")
+    else:
+        e0, scarto, n_conf, mediano, (e_min, e_max) = cal
+        fine = letto_il.replace(minute=letto_il.minute - letto_il.minute % 15,
+                                second=0, microsecond=0)
+
+        def ora(e):
+            return fine - storico.QUARTO * (len(quarti) - e)
+
+        sicura = scarto < 0.6 * mediano
+        quando = (f"verso le {ora(e0):%H:%M}" if e_min == e_max else
+                  f"tra le {ora(e_min):%H:%M} e le {ora(e_max):%H:%M} (di notte non si usa acqua: "
+                  "l'ora esatta non si ricava, ma le date dei giorni non cambiano)")
+        print(f"Cambio giorno dell'apparecchio {quando}; orari approssimati; "
+              f"scarto medio {scarto:.1f} L su {n_conf} giorni "
+              f"({'calibrazione affidabile' if sicura else 'CALIBRAZIONE INCERTA'}).")
+
+    n = len(giorni_v)
+    righe_g = [{"indice": (b["idx_giorni"] - n + j) % MAX_GIORNI, "litri": g["litri"],
+                "rigenerazioni": g["rigen"], "blackout": int(g["blackout"])}
+               for j, g in enumerate(giorni_v)]
+    righe_g = storico.etichetta_giorni(righe_g, len(quarti), e0, letto_il)
+    nq = len(quarti)
+    righe_q = [{"indice": (b["idx_quarti"] - nq + j) % MAX_QUARTI, "litri": x["litri"],
+                "rigenerazione": int(x["rigen"]), "blackout": int(x["blackout"])}
+               for j, x in enumerate(quarti)]
+    righe_q = storico.etichetta_quarti(righe_q, letto_il)
+
+    cartella = Tracker(data_dir).dir
+    sigla = letto_il.strftime("%Y%m%d")
+    pg, pq = cartella / f"storico_giorni_{sigla}.csv", cartella / f"storico_quarti_{sigla}.csv"
+    storico.scrivi_csv(pg, storico.GIORNI_COLONNE, righe_g)
+    storico.scrivi_csv(pq, storico.QUARTI_COLONNE, righe_q)
+
+    r = storico.riepilogo(righe_g)
+    print(f"\n{r['giorni']} giorni dal {r['da']} al {r['a']}: media {r['media_litri']} L/giorno "
+          f"(mediana {r['mediana_litri']}), {r['giorni_a_zero']} a zero, "
+          f"{r['rigenerazioni']} rigenerazioni ({r['rigenerazioni_al_giorno']}/giorno).")
+    print("Media per giorno della settimana:")
+    for nome, v in r["per_giorno_settimana"].items():
+        print(f"  {nome}: {v['media']} L ({v['giorni']} giorni)")
+    print(f"\nScritti:\n  {pg}\n  {pq}")
+
+
 def cmd_salt_refill(kg_dopo, aggiunti, livello, used_regens, data_dir):
     try:
         r = Tracker(data_dir).rabbocco(kg_dopo, used_regens,
@@ -440,6 +557,10 @@ def main():
     sv.add_argument("--host", default="0.0.0.0")
     sv.add_argument("--port", type=int, default=8765)
     sv.add_argument("--pin", default=None, help="PIN per le azioni che scrivono")
+    st = sub.add_parser("storico", help="legge la memoria dell'apparecchio -> CSV")
+    st.add_argument("mac", nargs="?", help="se omesso: quello di config.json")
+    st.add_argument("--giorni", type=int, default=MAX_GIORNI,
+                    help=f"quanti giorni leggere (max {MAX_GIORNI})")
     rf = sub.add_parser("salt-refill")
     rf.add_argument("kg", type=float,
                     help="kg nel serbatoio DOPO il rabbocco (es. 14 se pieno)")
@@ -467,6 +588,8 @@ def main():
             cmd_serve(a.mac, a.data_dir, a.interval, a.host, a.port, a.pin)
         except KeyboardInterrupt:
             pass
+    elif a.cmd == "storico":
+        asyncio.run(cmd_storico(a.mac, a.data_dir, a.giorni))
     elif a.cmd == "salt-refill":
         cmd_salt_refill(a.kg, a.aggiunti, a.livello, a.used_regens, a.data_dir)
     elif a.cmd == "status":
