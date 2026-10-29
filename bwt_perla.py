@@ -13,6 +13,7 @@ Uso:
   python bwt_perla.py storico [MAC]     # legge la memoria dell'apparecchio -> CSV (ferma prima il servizio)
   python bwt_perla.py analisi-storico   # rilegge i CSV senza Bluetooth (--da AAAA-MM-GG: messa in servizio)
   python bwt_perla.py analisi-calendario  # consumi contro feriali/festivi/ponti del calendario italiano
+  python bwt_perla.py analisi-perdite   # SPERIMENTALE: indizi di perdita (notte, silenzio, pavimento); --giorno oggi
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
 questo file ne eredita la licenza (GPLv3).
@@ -21,17 +22,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import sys
 import threading
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from bleak import BleakClient, BleakScanner
 
 from config import carica_config, salva_config, valida_mac
 import calendario
+import perdite
 import storico
-from tracker import GIORNI_USO, Tracker
+from tracker import GIORNI_USO, QUARTI_CSV, Tracker
 
 U_SERVICE = "d973f2e0-b19e-11e2-9e96-0800200c9a66"
 U_NOTIFY = "d973f2e1-b19e-11e2-9e96-0800200c9a66"     # storico (notify)
@@ -586,6 +589,39 @@ def cmd_analisi_calendario(data_dir, file_giorni, da, patrono):
         calendario.correlazione(storico.carica_giorni(pg), da, patrono))))
 
 
+def cmd_analisi_perdite(data_dir, file_giorni, file_quarti, da, giorno, notti):
+    """Indizi di perdita dai consumi (sperimentale), senza Bluetooth."""
+    cartella = Tracker(data_dir).dir
+
+    def ultimo(prefisso):
+        trovati = sorted(cartella.glob(prefisso + "_*.csv"))
+        return trovati[-1] if trovati else None
+
+    pq = Path(file_quarti) if file_quarti else ultimo("storico_quarti")
+    pg = Path(file_giorni) if file_giorni else ultimo("storico_giorni")
+    live = []
+    if (cartella / QUARTI_CSV).exists():
+        with (cartella / QUARTI_CSV).open(newline="") as f:
+            live = [{**r, "litri": int(r["litri"])} for r in csv.DictReader(f)]
+    sq = storico.carica_quarti(pq) if pq else []
+    if not live and not sq:
+        raise SystemExit(f"Nessun quarto d'ora in {cartella}: lancia 'storico' o 'serve'/'log'.")
+    serie = perdite.serie_con_esclusioni(live, sq)
+    da = _messa_in_servizio(data_dir, da)
+    print("File: " + ", ".join(x for x in (pq.name if pq else None, pg.name if pg else None,
+                                          QUARTI_CSV if live else None) if x))
+    if giorno:
+        oggi = date.today()
+        try:
+            g = {"oggi": oggi, "ieri": oggi - timedelta(days=1)}.get(giorno) or date.fromisoformat(giorno)
+        except ValueError:
+            raise SystemExit("--giorno vuole oggi, ieri oppure AAAA-MM-GG")
+        print("\n".join(perdite.righe_giorno(serie, g)))
+        return
+    giorni = storico.carica_giorni(pg) if pg else None
+    print("\n".join(perdite.righe_analisi(serie, giorni, da, notti)))
+
+
 def cmd_salt_refill(kg_dopo, aggiunti, livello, used_regens, data_dir):
     try:
         r = Tracker(data_dir).rabbocco(kg_dopo, used_regens,
@@ -662,6 +698,12 @@ def main():
     ac.add_argument("--giorni-file", help="storico_giorni_*.csv (predefinito: l'ultimo)")
     ac.add_argument("--da", help="messa in servizio AAAA-MM-GG (si salva in config.json)")
     ac.add_argument("--patrono", help="festa del santo patrono della citta', MM-GG (per esempio 12-07)")
+    ap_ = sub.add_parser("analisi-perdite", help="SPERIMENTALE: indizi di perdita dai consumi")
+    ap_.add_argument("--giorni-file", help="storico_giorni_*.csv (predefinito: l'ultimo)")
+    ap_.add_argument("--quarti-file", help="storico_quarti_*.csv (predefinito: l'ultimo)")
+    ap_.add_argument("--da", help="messa in servizio AAAA-MM-GG (si salva in config.json)")
+    ap_.add_argument("--giorno", help="mostra i quarti d'ora di un giorno: oggi, ieri o AAAA-MM-GG")
+    ap_.add_argument("--notti", type=int, default=14, help="quante notti elencare (predefinito 14)")
     an = sub.add_parser("analisi-storico", help="rilegge i CSV di storico, senza Bluetooth")
     an.add_argument("--giorni-file", help="storico_giorni_*.csv (predefinito: l'ultimo)")
     an.add_argument("--quarti-file", help="storico_quarti_*.csv (predefinito: l'ultimo)")
@@ -695,6 +737,8 @@ def main():
             pass
     elif a.cmd == "storico":
         asyncio.run(cmd_storico(a.mac, a.data_dir, a.giorni, da=a.da))
+    elif a.cmd == "analisi-perdite":
+        cmd_analisi_perdite(a.data_dir, a.giorni_file, a.quarti_file, a.da, a.giorno, a.notti)
     elif a.cmd == "analisi-calendario":
         cmd_analisi_calendario(a.data_dir, a.giorni_file, a.da, a.patrono)
     elif a.cmd == "analisi-storico":

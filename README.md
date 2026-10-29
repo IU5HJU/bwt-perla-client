@@ -205,6 +205,33 @@ fida dell'ipotesi di slot da 24 ore senza interruzioni; non so quanti giorni
 validi contenga davvero un apparecchio vecchio. Non e' stato ancora provato su
 un apparecchio vero.
 
+**Indizi di perdita: `analisi-perdite` (sperimentale).** Una perdita e' un filo
+d'acqua che non si ferma mai, quindi si cerca dove la casa dovrebbe essere ferma.
+Il comando rilegge i CSV senza Bluetooth e mette insieme tre indizi:
+
+```
+python bwt_perla.py analisi-perdite                  # rapporto
+python bwt_perla.py analisi-perdite --giorno oggi    # i quarti d'ora di un giorno (oggi, ieri, AAAA-MM-GG)
+```
+- **Notte**: quanti dei 16 quarti d'ora tra le 01:00 e le 05:00 hanno consumo.
+  Sospetta da 8, continua da 12. Le notti con una rigenerazione o un'interruzione
+  di corrente si scartano (la rigenerazione usa acqua di notte).
+- **Silenzio**: la striscia piu' lunga di quarti d'ora a zero nella giornata. Con
+  una perdita si accorcia.
+- **Pavimento**: il consumo minimo su 14 giorni, sui soli giorni senza
+  rigenerazione, confrontato con tutta la storia (ultimo giorno escluso, puo' essere
+  parziale). Un pavimento che sale e non scende piu' e' l'indizio piu' lento ma piu'
+  affidabile, e usa i 5 anni dell'apparecchio.
+
+Avvisa solo se **3 notti valide di fila** sono anomale, oppure se il pavimento e'
+il piu' alto mai registrato. E' un indizio, non una diagnosi: una perdita piccola
+(sotto circa 1 L/h) si perde nel rumore dei quarti d'ora in litri interi, e un
+uso notturno che non ricordi sembra una perdita. Il controllo vero e' il
+contatore di casa con tutto fermo. `--giorno` serve a vedere la «firma» di un
+elettrodomestico: per esempio una lavastoviglie ha un lavaggio con picchi
+di consumo seguito da un'asciugatura a zero, che il comando elenca tra le strisce
+di almeno un'ora senza consumo.
+
 ## Pagina web (rete locale)
 
 ```
