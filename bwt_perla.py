@@ -11,6 +11,7 @@ Uso:
   python bwt_perla.py status            # ultima riga registrata
   python bwt_perla.py serve             # registrazione + pagina web in un solo processo
   python bwt_perla.py storico [MAC]     # legge la memoria dell'apparecchio -> CSV (ferma prima il servizio)
+  python bwt_perla.py analisi-storico   # rilegge i CSV senza Bluetooth (--da AAAA-MM-GG: messa in servizio)
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
 questo file ne eredita la licenza (GPLv3).
@@ -22,6 +23,7 @@ import asyncio
 import sys
 import threading
 from datetime import datetime
+from pathlib import Path
 
 from bleak import BleakClient, BleakScanner
 
@@ -426,7 +428,7 @@ async def _leggi_storico(mac: str, giorni: int):
     raise RuntimeError(f"lettura dello storico non riuscita: {ultimo_errore!r}")
 
 
-async def cmd_storico(mac, data_dir, giorni, adesso=None):
+async def cmd_storico(mac, data_dir, giorni, adesso=None, da=None):
     addr = mac or carica_config(data_dir).get("mac")
     if not addr:
         try:
@@ -480,14 +482,53 @@ async def cmd_storico(mac, data_dir, giorni, adesso=None):
     storico.scrivi_csv(pg, storico.GIORNI_COLONNE, righe_g)
     storico.scrivi_csv(pq, storico.QUARTI_COLONNE, righe_q)
 
-    r = storico.riepilogo(righe_g)
-    print(f"\n{r['giorni']} giorni dal {r['da']} al {r['a']}: media {r['media_litri']} L/giorno "
-          f"(mediana {r['mediana_litri']}), {r['giorni_a_zero']} a zero, "
-          f"{r['rigenerazioni']} rigenerazioni ({r['rigenerazioni_al_giorno']}/giorno).")
-    print("Media per giorno della settimana:")
-    for nome, v in r["per_giorno_settimana"].items():
-        print(f"  {nome}: {v['media']} L ({v['giorni']} giorni)")
+    da = _messa_in_servizio(data_dir, da)
+    print("\n" + "\n".join(storico.righe_riepilogo(storico.riepilogo(righe_g, da),
+                                                   storico.profilo_orario(righe_q))))
     print(f"\nScritti:\n  {pg}\n  {pq}")
+
+
+def _messa_in_servizio(data_dir, da):
+    """Data di messa in servizio: da riga di comando (e allora si salva in
+    config.json) oppure quella gia' salvata. I giorni precedenti sono a zero
+    perche' l'apparecchio non era installato."""
+    if da:
+        try:
+            datetime.strptime(da, "%Y-%m-%d")
+        except ValueError:
+            raise SystemExit("--da vuole una data nel formato AAAA-MM-GG")
+        if carica_config(data_dir).get("messa_in_servizio") != da:
+            salva_config(data_dir, messa_in_servizio=da)
+            print(f"Messa in servizio salvata in config.json: {da}")
+        return da
+    return carica_config(data_dir).get("messa_in_servizio")
+
+
+def cmd_analisi_storico(data_dir, file_giorni, file_quarti, da):
+    """Rilegge i CSV di `storico` senza Bluetooth."""
+    cartella = Tracker(data_dir).dir
+
+    def ultimo(prefisso):
+        trovati = sorted(cartella.glob(prefisso + "_*.csv"))
+        if not trovati:
+            raise SystemExit(f"Nessun file {prefisso}_*.csv in {cartella}: lancia prima 'storico'.")
+        return trovati[-1]
+
+    pg = Path(file_giorni) if file_giorni else ultimo("storico_giorni")
+    pq = Path(file_quarti) if file_quarti else None
+    if pq is None:
+        try:
+            pq = ultimo("storico_quarti")
+        except SystemExit:
+            pq = None
+    print(f"File: {pg.name}" + (f", {pq.name}" if pq else ""))
+    da = _messa_in_servizio(data_dir, da)
+    if da is None:
+        print("Suggerimento: indica la data di messa in servizio con --da AAAA-MM-GG; "
+              "senza, i giorni precedenti (a zero) falsano le medie.")
+    profilo = storico.profilo_orario(storico.carica_quarti(pq)) if pq else None
+    print("\n".join(storico.righe_riepilogo(
+        storico.riepilogo(storico.carica_giorni(pg), da), profilo)))
 
 
 def cmd_salt_refill(kg_dopo, aggiunti, livello, used_regens, data_dir):
@@ -561,6 +602,11 @@ def main():
     st.add_argument("mac", nargs="?", help="se omesso: quello di config.json")
     st.add_argument("--giorni", type=int, default=MAX_GIORNI,
                     help=f"quanti giorni leggere (max {MAX_GIORNI})")
+    st.add_argument("--da", help="messa in servizio AAAA-MM-GG: esclude i giorni precedenti")
+    an = sub.add_parser("analisi-storico", help="rilegge i CSV di storico, senza Bluetooth")
+    an.add_argument("--giorni-file", help="storico_giorni_*.csv (predefinito: l'ultimo)")
+    an.add_argument("--quarti-file", help="storico_quarti_*.csv (predefinito: l'ultimo)")
+    an.add_argument("--da", help="messa in servizio AAAA-MM-GG (si salva in config.json)")
     rf = sub.add_parser("salt-refill")
     rf.add_argument("kg", type=float,
                     help="kg nel serbatoio DOPO il rabbocco (es. 14 se pieno)")
@@ -589,7 +635,9 @@ def main():
         except KeyboardInterrupt:
             pass
     elif a.cmd == "storico":
-        asyncio.run(cmd_storico(a.mac, a.data_dir, a.giorni))
+        asyncio.run(cmd_storico(a.mac, a.data_dir, a.giorni, da=a.da))
+    elif a.cmd == "analisi-storico":
+        cmd_analisi_storico(a.data_dir, a.giorni_file, a.quarti_file, a.da)
     elif a.cmd == "salt-refill":
         cmd_salt_refill(a.kg, a.aggiunti, a.livello, a.used_regens, a.data_dir)
     elif a.cmd == "status":

@@ -158,6 +158,21 @@ dell'inizio dello slot, dove cade la sera). Il comando dice se la calibrazione e
 affidabile o incerta. Se l'apparecchio cambia giorno in piena notte, quando non si
 usa acqua, l'ora esatta non si ricava ma l'intervallo si, e le date non cambiano.
 
+**Riletture senza Bluetooth: `analisi-storico`.** I CSV si rileggono quando si vuole,
+senza fermare il servizio e senza toccare l'apparecchio:
+
+```
+python bwt_perla.py analisi-storico --da 2023-03-22
+```
+`--da` e' la data di **messa in servizio**: i giorni precedenti sono a zero perche'
+l'apparecchio non era installato (non c'era nulla da registrare), e vanno esclusi
+dalle medie. La data si salva in `config.json` e le volte dopo non serve piu'
+indicarla (vale anche per `storico`). Il comando stampa media e mediana sui giorni
+in servizio e sui soli giorni con consumo, i giorni a zero (assenze), le
+rigenerazioni (una ogni N giorni), la media per giorno della settimana, i totali
+per anno e per mese dell'anno e il **profilo orario** (litri medi per ora, feriali
+contro fine settimana, sugli ultimi 30 giorni a quarti d'ora).
+
 **Limiti.** Gli orari dei quarti sono approssimati come nella registrazione
 normale; i giorni sono a multipli di 10 L; piu' si va indietro piu' la datazione si
 fida dell'ipotesi di slot da 24 ore senza interruzioni; non so quanti giorni

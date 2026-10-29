@@ -114,29 +114,114 @@ def etichetta_quarti(quarti: list[dict], letto_il: datetime) -> list[dict]:
             for j, q in enumerate(quarti)]
 
 
-def riepilogo(righe: list[dict]) -> dict:
-    """Statistiche sui giorni etichettati (lista di dict con data e litri)."""
+def riepilogo(righe: list[dict], dal: str | None = None) -> dict:
+    """Statistiche sui giorni etichettati (dict con data AAAA-MM-GG, litri...).
+
+    `dal`: data di messa in servizio. I giorni precedenti non hanno dati reali
+    (l'apparecchio non era installato: sono a zero perche' non c'era nulla da
+    registrare) e vengono esclusi, ma contati in `giorni_esclusi`."""
+    esclusi = 0
+    if dal:
+        esclusi = sum(1 for r in righe if r["data"] < dal)
+        righe = [r for r in righe if r["data"] >= dal]
     if not righe:
-        return {}
-    per_gs = defaultdict(list)
-    for r in righe:
-        per_gs[datetime.fromisoformat(r["data"]).weekday()].append(r["litri"])
-    litri = [r["litri"] for r in righe]
-    rig = sum(r["rigenerazioni"] for r in righe)
+        return {"giorni_esclusi": esclusi} if esclusi else {}
 
     def media(v):
         return round(statistics.mean(v), 1) if v else None
 
+    per_gs, per_mese, per_anno = defaultdict(list), defaultdict(list), defaultdict(list)
+    for r in righe:
+        d = datetime.fromisoformat(r["data"])
+        per_gs[d.weekday()].append(r["litri"])
+        per_mese[d.month].append(r["litri"])
+        per_anno[d.year].append(r)
+    litri = [r["litri"] for r in righe]
+    con_consumo = [v for v in litri if v > 0]
+    rig = sum(r["rigenerazioni"] for r in righe)
     return {
-        "giorni": len(righe), "da": righe[0]["data"], "a": righe[-1]["data"],
+        "giorni": len(righe), "giorni_esclusi": esclusi,
+        "da": righe[0]["data"], "a": righe[-1]["data"],
         "media_litri": media(litri),
         "mediana_litri": statistics.median(litri),
-        "giorni_a_zero": sum(1 for v in litri if v == 0),
+        "media_giorni_con_consumo": media(con_consumo),
+        "giorni_a_zero": len(litri) - len(con_consumo),
         "rigenerazioni": rig,
         "rigenerazioni_al_giorno": round(rig / len(righe), 3),
+        "giorni_per_rigenerazione": round(len(righe) / rig, 1) if rig else None,
         "per_giorno_settimana": {GIORNI_SETTIMANA[i]: {"giorni": len(v), "media": media(v)}
                                  for i, v in sorted(per_gs.items())},
+        "per_mese_dell_anno": {m: {"giorni": len(v), "media": media(v)}
+                               for m, v in sorted(per_mese.items())},
+        "per_anno": {a: {"giorni": len(v), "media": media([r["litri"] for r in v]),
+                         "giorni_a_zero": sum(1 for r in v if r["litri"] == 0),
+                         "rigenerazioni": sum(r["rigenerazioni"] for r in v)}
+                     for a, v in sorted(per_anno.items())},
     }
+
+
+def profilo_orario(quarti: list[dict]) -> dict:
+    """Litri medi per ora del giorno, feriali (lun-ven) e fine settimana, sui
+    soli giorni con tutti i 96 quarti. Gli orari sono approssimati (vedi sopra)."""
+    ore = defaultdict(lambda: [0.0] * 24)
+    conteggio = defaultdict(int)
+    for q in quarti:
+        t = datetime.fromisoformat(q["inizio_approx"])
+        ore[t.date()][t.hour] += q["litri"]
+        conteggio[t.date()] += 1
+    gruppi = {"feriali": [], "weekend": []}
+    for d in sorted(ore):
+        if conteggio[d] == QUARTI_GIORNO:
+            gruppi["feriali" if d.weekday() < 5 else "weekend"].append(ore[d])
+    out = {"giorni": {k: len(v) for k, v in gruppi.items()}}
+    for k, v in gruppi.items():
+        out[k] = [round(statistics.mean(c[h] for c in v), 1) if v else None for h in range(24)]
+    return out
+
+
+def carica_giorni(path) -> list[dict]:
+    with Path(path).open(newline="") as f:
+        return [{**r, "litri": int(r["litri"]), "rigenerazioni": int(r["rigenerazioni"]),
+                 "blackout": int(r["blackout"])} for r in csv.DictReader(f)]
+
+
+def carica_quarti(path) -> list[dict]:
+    with Path(path).open(newline="") as f:
+        return [{**r, "litri": int(r["litri"])} for r in csv.DictReader(f)]
+
+
+def righe_riepilogo(r: dict, profilo: dict | None = None) -> list[str]:
+    """Testo del riepilogo, una riga per elemento."""
+    if not r:
+        return ["Nessun giorno da analizzare."]
+    out = []
+    if r["giorni_esclusi"]:
+        out.append(f"Esclusi {r['giorni_esclusi']} giorni precedenti alla messa in servizio.")
+    out.append(f"{r['giorni']} giorni in servizio, dal {r['da']} al {r['a']}: media "
+               f"{r['media_litri']} L/giorno (mediana {r['mediana_litri']}), "
+               f"{r['media_giorni_con_consumo']} L sui soli giorni con consumo; "
+               f"{r['giorni_a_zero']} giorni a zero.")
+    if r["rigenerazioni"]:
+        out.append(f"{r['rigenerazioni']} rigenerazioni: {r['rigenerazioni_al_giorno']} al giorno, "
+                   f"una ogni {r['giorni_per_rigenerazione']} giorni.")
+    out.append("Media per giorno della settimana:")
+    out += [f"  {n}: {v['media']} L ({v['giorni']} giorni)" for n, v in r["per_giorno_settimana"].items()]
+    out.append("Per anno (giorni, media L/giorno, giorni a zero, rigenerazioni):")
+    out += [f"  {a}: {v['giorni']:4d} gg  {v['media']:6} L  {v['giorni_a_zero']:3d} a zero  "
+            f"{v['rigenerazioni']:3d} rigen." for a, v in r["per_anno"].items()]
+    mesi = ("gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic")
+    out.append("Per mese dell'anno (media L/giorno su tutti gli anni):")
+    out.append("  " + "  ".join(f"{mesi[m - 1]} {v['media']:.0f}" for m, v in r["per_mese_dell_anno"].items()))
+    if profilo and (profilo["giorni"]["feriali"] or profilo["giorni"]["weekend"]):
+        g = profilo["giorni"]
+        out.append(f"Profilo orario, litri medi per ora ({g['feriali']} giorni feriali, "
+                   f"{g['weekend']} di fine settimana; orari approssimati):")
+        out.append("  ora   feriali  weekend")
+        for h in range(24):
+            f, w = profilo["feriali"][h], profilo["weekend"][h]
+            barra = "#" * round((f or 0) / 2)
+            out.append(f"  {h:02d}   {'-' if f is None else f:>7}  {'-' if w is None else w:>7}  {barra}")
+    return out
 
 
 def scrivi_csv(path: Path, colonne: list[str], righe: list[dict]) -> None:
