@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from config import carica_config, salva_config, valida_mac
+import perdite
 import storico
 from tracker import (CICLI_CSV, QUARTI_CSV, Tracker, annulla_ultimo_rabbocco,
                      carica_rabbocchi, registra_rabbocco)
@@ -64,6 +65,18 @@ def _num(v, tipo=float):
         return None
 
 
+def _perdite(cartella: Path, quarti: list[dict], storico_q: list[dict]) -> dict:
+    """Indizi di perdita (sperimentale). Un errore qui non deve togliere la pagina."""
+    try:
+        trovati = sorted(cartella.glob("storico_giorni_*.csv"))
+        giorni = storico.carica_giorni(trovati[-1]) if trovati else None
+        serie = perdite.serie_con_esclusioni(quarti, storico_q)
+        # la notte in corso non e' completa: il confronto usa solo giorni con 96 quarti
+        return perdite.valutazione(serie, giorni, carica_config(cartella).get("messa_in_servizio"))
+    except Exception as e:  # noqa: BLE001 - funzione sperimentale, l'errore va mostrato nella card
+        return {"stato": "nd", "errore": f"{type(e).__name__}: {e}", "motivi": [], "notti": []}
+
+
 def riepilogo(data_dir, now: datetime | None = None,
               pin_richiesto: bool = False, ble_disponibile: bool = False) -> dict:
     now = now or datetime.now()
@@ -94,6 +107,7 @@ def riepilogo(data_dir, now: datetime | None = None,
     serie = storico.serie_litri(quarti, ultimo_storico("storico_quarti"),
                                 ultimo_storico("storico_giorni"))
     litri_h = serie["ore"]
+    perdite_esito = _perdite(tr.dir, quarti, ultimo_storico("storico_quarti"))
     rigen_g: dict[str, int] = defaultdict(int)
     black_g: dict[str, int] = defaultdict(int)
     for r in cicli:
@@ -144,6 +158,7 @@ def riepilogo(data_dir, now: datetime | None = None,
         "media_litri_giorno_7g": round(sum(complete) / len(complete)) if complete else None,
         "sale": sale, "giorni": giorni, "ore": ore,
         "rigenerazioni": {**stat_rig, "litri_7g": sum(o["litri"] for o in ore)},
+        "perdite": perdite_esito,
     }
 
 

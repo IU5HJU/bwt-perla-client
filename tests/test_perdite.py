@@ -162,6 +162,53 @@ class RapportoTest(unittest.TestCase):
         self.assertIn("nessun giorno completo", "\n".join(perdite.righe_analisi([], None, None)))
 
 
+class ValutazioneTest(unittest.TestCase):
+    def stato(self, giorni=5, giorni_csv_=None, **kw):
+        return perdite.valutazione(serie_giorni(giorni, **kw), giorni_csv_, None)
+
+    def test_ok(self):
+        v = self.stato()
+        self.assertEqual((v["stato"], v["motivi"], v["notti_valide"]), ("ok", [], 5))
+        self.assertEqual(len(v["notti"]), 5)
+
+    def test_tre_notti_di_fila_sono_allarme(self):
+        v = self.stato(notte=lambda g, k: 1)
+        self.assertEqual((v["stato"], v["motivi"]), ("allarme", ["notti"]))
+        self.assertEqual(v["ultima_attivi"], 16)
+
+    def test_due_notti_non_bastano(self):
+        v = self.stato(notte=lambda g, k: 1 if g >= 3 else 0)
+        self.assertEqual((v["stato"], v["motivi"]), ("attenzione", ["ultima_notte"]))
+
+    def test_notte_anomala_non_ultima_e_ok(self):
+        self.assertEqual(self.stato(notte=lambda g, k: 1 if g == 1 else 0)["stato"], "ok")
+
+    def test_pavimento_record_e_attenzione(self):
+        v = self.stato(giorni_csv_=giorni_csv(200, minimo_ultimi=90))
+        self.assertEqual((v["stato"], v["motivi"]), ("attenzione", ["pavimento"]))
+        self.assertTrue(v["pavimento"]["record"])
+
+    def test_allarme_con_pavimento_record_li_elenca_entrambi(self):
+        v = self.stato(notte=lambda g, k: 1, giorni_csv_=giorni_csv(200, minimo_ultimi=90))
+        self.assertEqual((v["stato"], v["motivi"]), ("allarme", ["notti", "pavimento"]))
+
+    def test_senza_notti_valide(self):
+        v = perdite.valutazione([], None, None)
+        self.assertEqual((v["stato"], v["notti"], v["pavimento"]), ("nd", [], None))
+
+    def test_notti_scartate_non_contano(self):
+        v = self.stato(notte=lambda g, k: 1, regen=lambda g, k: g >= 1 and k == 10)
+        self.assertEqual(v["stato"], "nd" if v["notti_valide"] == 0 else v["stato"])
+        self.assertLess(v["notti_valide"], 3)
+        self.assertNotEqual(v["stato"], "allarme")
+
+    def test_stessa_regola_della_riga_attenzione(self):
+        for kw in ({}, {"notte": lambda g, k: 1}, {"notte": lambda g, k: 1 if g == 4 else 0}):
+            v = self.stato(**kw)
+            testo = "\n".join(perdite.righe_analisi(serie_giorni(5, **kw), None, None))
+            self.assertEqual("ATTENZIONE" in testo, v["stato"] == "allarme", kw)
+
+
 class SerieTest(unittest.TestCase):
     def test_flag_di_rigenerazione_segue_il_quarto(self):
         inizio = datetime(2026, 9, 1, 0, 0)
