@@ -17,7 +17,7 @@ from __future__ import annotations
 import csv
 import statistics
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 QUARTI_GIORNO = 96
@@ -313,6 +313,43 @@ def serie_litri(live: list[dict], storico_q: list[dict], storico_g: list[dict]) 
             litri = somma
         giorni[d] = {"litri": litri, "rigenerazioni": int(h["rigenerazioni"]) if h else None}
     return {"ore": dict(ore), "giorni": giorni}
+
+
+def statistiche_rigenerazioni(per_giorno: dict[str, int], oggi: date,
+                              rate: float | None = None, finestra: int = 365) -> dict:
+    """Quando e' stata l'ultima rigenerazione, quante nell'ultimo mese e quando e'
+    attesa la prossima.
+
+    per_giorno: {"AAAA-MM-GG": rigenerazioni del giorno}, storico e registrazione
+    uniti. Gli intervalli tra due giorni con rigenerazione, sull'ultimo anno,
+    danno il tipico (mediano) e la fascia in cui di solito cade la successiva
+    (dal primo al terzo quartile). Con meno di 8 intervalli si ripiega su
+    1/`rate` (rigenerazioni al giorno) con una tolleranza di un giorno."""
+    fine = oggi.isoformat()
+    da_anno = (oggi - timedelta(days=finestra)).isoformat()
+    da_mese = (oggi - timedelta(days=29)).isoformat()
+    date_rig = sorted(d for d, n in per_giorno.items() if n > 0 and da_anno <= d <= fine)
+    out = {"ultime_30g": sum(n for d, n in per_giorno.items() if da_mese <= d <= fine),
+           "ultima": date_rig[-1] if date_rig else None, "giorni_dall_ultima": None,
+           "intervallo": None, "prossima_da": None, "prossima_a": None}
+    if not date_rig:
+        return out
+    ultima = date.fromisoformat(date_rig[-1])
+    out["giorni_dall_ultima"] = (oggi - ultima).days
+    intervalli = sorted((date.fromisoformat(b) - date.fromisoformat(a)).days
+                        for a, b in zip(date_rig, date_rig[1:]))
+    if len(intervalli) >= 8:
+        n = len(intervalli)
+        out["intervallo"] = {"mediano": statistics.median(intervalli), "p25": intervalli[n // 4],
+                             "p75": intervalli[(3 * n) // 4], "campione": n}
+    elif rate:
+        tipico = 1 / rate
+        out["intervallo"] = {"mediano": round(tipico, 1), "p25": max(1, round(tipico) - 1),
+                             "p75": round(tipico) + 1, "campione": 0}
+    if out["intervallo"]:
+        out["prossima_da"] = (ultima + timedelta(days=out["intervallo"]["p25"])).isoformat()
+        out["prossima_a"] = (ultima + timedelta(days=out["intervallo"]["p75"])).isoformat()
+    return out
 
 
 def scrivi_csv(path: Path, colonne: list[str], righe: list[dict]) -> None:

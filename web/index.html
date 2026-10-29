@@ -89,6 +89,7 @@
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; padding: 5px 12px; font-size: .85rem; background: transparent; }
   .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  #regen-dett { white-space: pre-line; }
   .vuoto { color: var(--muted); padding: 24px 0; text-align: center; }
 </style>
 </head>
@@ -122,8 +123,8 @@
     </div>
     <div class="card">
       <h2>Rigenerazioni</h2>
-      <div class="grande"><span id="regen">–</span></div>
-      <div class="muted" id="regen-dett">da quando registro</div>
+      <div class="grande"><span id="regen">–</span><span class="unit"> negli ultimi 30 giorni</span></div>
+      <div class="muted" id="regen-dett"></div>
     </div>
   </div>
 
@@ -225,6 +226,8 @@ function el(tag, attrs, text) {
 }
 const fmt = n => (n === null || n === undefined || n === "") ? "–"
   : Number(n).toLocaleString("it-IT");
+
+const dataIt = iso => iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4);
 
 function larg(svg) { return Math.max(300, Math.round(svg.parentElement.clientWidth - 28)); }
 
@@ -406,13 +409,27 @@ function mostra(d) {
   $("oggi").textContent = fmt(oggi && oggi.litri);
   $("oggi-dett").textContent = d.media_litri_giorno_7g
     ? "media giornaliera " + fmt(d.media_litri_giorno_7g) + " L (ultimi giorni completi)" : "giorno in corso";
-  $("regen").textContent = fmt(d.totali.rigenerazioni);
-  $("regen-dett").textContent = "blackout: " + fmt(d.totali.blackout) +
-    " · acqua registrata: " + fmt(d.totali.litri) + " L";
+  const rg = d.rigenerazioni, giorno = x => new Date(x + "T12:00").toLocaleDateString("it-IT", {day: "2-digit", month: "2-digit"});
+  $("regen").textContent = fmt(rg.ultime_30g);
+  const parti = [];
+  if (rg.ultima) {
+    const g = rg.giorni_dall_ultima;
+    parti.push("Ultima: " + giorno(rg.ultima) + " (" + (g === 0 ? "oggi" : g === 1 ? "ieri" : g + " giorni fa") + ")");
+  } else parti.push("Nessuna rigenerazione nei dati");
+  if (rg.intervallo) {
+    const i = rg.intervallo;
+    parti.push("una ogni " + String(i.mediano).replace(".", ",") + " giorni (di solito " + i.p25 + "-" + i.p75 + ")");
+    const fra = (new Date(rg.prossima_a + "T12:00") - Date.now()) / 86400000;
+    parti.push(fra < 0 ? "prossima attesa a breve" : "prossima attesa " +
+      (rg.prossima_da === rg.prossima_a ? "il " + giorno(rg.prossima_da)
+                                        : "tra il " + giorno(rg.prossima_da) + " e il " + giorno(rg.prossima_a)));
+  }
+  parti.push("acqua degli ultimi 7 giorni: " + fmt(rg.litri_7g) + " L");
+  $("regen-dett").textContent = parti.join("\n");
 
   bars($("g-giorni"), d.giorni.map(g => ({
     v: g.litri, ev: g.rigenerazioni > 0,
-    tip: g.giorno + ": " + g.litri + " L" + (g.rigenerazioni ? " · rigenerazione" : ""),
+    tip: dataIt(g.giorno) + ": " + g.litri + " L" + (g.rigenerazioni ? " · rigenerazione" : ""),
     g: g.giorno
   })), i => i.g.slice(8, 10) + "/" + i.g.slice(5, 7), 640, 200, true);
 
@@ -447,7 +464,7 @@ function disegnaOre(d) {
   const gg = o => o.slice(8, 10) + "/" + o.slice(5, 7);
   bars($("g-ore"), ore.map(o => ({
     v: o.litri, o: o.ora,
-    tip: gg(o.ora) + " " + o.ora.slice(11, 13) + ":00 – " + o.litri + " L"
+    tip: dataIt(o.ora) + " " + o.ora.slice(11, 13) + ":00 – " + o.litri + " L"
   })), sett
     ? i => i.o.slice(11, 13) === "00"
       ? new Date(i.o.slice(0, 10) + "T12:00").toLocaleDateString("it-IT", {weekday: "short"}) + " " + i.o.slice(8, 10)
