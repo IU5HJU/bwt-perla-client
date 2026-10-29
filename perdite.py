@@ -166,6 +166,45 @@ def righe_giorno(serie, giorno: date) -> list[str]:
     return righe
 
 
+def valutazione(serie, giorni: list[dict] | None, dal: str | None, ultime: int = 14) -> dict:
+    """Esito per la pagina web (stesse regole di `righe_analisi`).
+
+    stato: "allarme" = le ultime 3 notti valide sono tutte anomale;
+    "attenzione" = l'ultima notte valida e' anomala, oppure il pavimento dei consumi
+    e' il piu' alto mai registrato; "ok"; "nd" = nessuna notte valida."""
+    ns = notti(serie) if serie else []
+    valide = [n for n in ns if n["scartata"] is None]
+    p = pavimento(giorni, dal) if giorni else {}
+    motivi = []
+    if not valide:
+        stato = "nd"
+    elif len(valide) >= 3 and all(n["giudizio"] != "ok" for n in valide[-3:]):
+        stato = "allarme"
+        motivi.append("notti")
+    else:
+        stato = "ok"
+        if valide[-1]["giudizio"] != "ok":
+            stato = "attenzione"
+            motivi.append("ultima_notte")
+    if p.get("record") and stato in ("ok", "attenzione"):
+        stato = "attenzione"
+        motivi.append("pavimento")
+    elif p.get("record"):
+        motivi.append("pavimento")
+    ultima = valide[-1] if valide else None
+    return {
+        "stato": stato, "motivi": motivi,
+        "notti": [{"data": n["data"], "attivi": n["attivi"], "litri": n["litri"],
+                   "giudizio": n["giudizio"], "scartata": n["scartata"]} for n in ns[-ultime:]],
+        "notti_valide": len(valide),
+        "ultima_attivi": ultima["attivi"] if ultima else None,
+        "soglie": {"quarti": QUARTI_NOTTE, "sospetta": SOGLIA_SOSPETTA, "continua": SOGLIA_CONTINUA},
+        "pavimento": ({"minimo": p["ultima"]["minimo"], "dal": p["ultima"]["dal"], "zeri": p["ultima"]["zeri"],
+                       "mediana": p.get("mediana"), "massimo": p.get("massimo"), "record": p.get("record")}
+                      if p else None),
+    }
+
+
 def righe_analisi(serie, giorni: list[dict] | None, dal: str | None, ultime: int = 14) -> list[str]:
     righe = ["Analisi perdite — SPERIMENTALE: sono indizi, non una diagnosi.",
              f"Notte = quarti d'ora con consumo tra le {NOTTE_DA:02d}:00 e le {NOTTE_A:02d}:00 "

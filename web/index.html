@@ -60,6 +60,14 @@
   summary { cursor: pointer; color: var(--muted); }
   pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
         padding: 10px; overflow-x: auto; font-size: .8rem; }
+  .notti { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .notte { width: 38px; text-align: center; font-size: .72rem; color: var(--muted); }
+  .notte i { display: block; height: 26px; border-radius: 5px; margin-bottom: 2px;
+             background: var(--line); }
+  .notte .n-ok { background: color-mix(in srgb, var(--ok) 35%, transparent); }
+  .notte .n-sospetto { background: var(--warn); }
+  .notte .n-continuo { background: var(--bad); }
+  .notte .n-scartata { background: repeating-linear-gradient(45deg, var(--line), var(--line) 4px, transparent 4px, transparent 8px); }
   .badge { display: inline-block; font-size: .8rem; font-weight: 600;
            border-radius: 999px; padding: 2px 10px; margin: 2px 0 4px; }
   .b-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
@@ -101,6 +109,7 @@
   </header>
   <div id="avviso" class="avviso" hidden></div>
   <div id="avviso-sale" class="avviso" hidden></div>
+  <div id="avviso-perdite" class="avviso" hidden></div>
 
   <div class="griglia">
     <div class="card">
@@ -126,6 +135,11 @@
       <div class="grande"><span id="regen">–</span><span class="unit"> negli ultimi 30 giorni</span></div>
       <div class="muted" id="regen-dett"></div>
     </div>
+    <div class="card">
+      <h2>Perdite <span class="muted">(sperimentale)</span></h2>
+      <span class="badge b-nd" id="perd-badge">–</span>
+      <div class="muted" id="perd-dett"></div>
+    </div>
   </div>
 
   <section class="card">
@@ -142,6 +156,13 @@
     </div>
     <svg id="g-ore" viewBox="0 0 640 180" role="img" aria-label="Consumo orario"></svg>
     <div class="muted" id="ore-tot"></div>
+  </section>
+  <section class="card" id="sez-perdite" hidden>
+    <h2>Consumo notturno, ultime notti</h2>
+    <div class="muted" id="perd-spiega"></div>
+    <div class="notti" id="perd-notti"></div>
+    <div class="muted" id="perd-leg"></div>
+    <div class="muted" id="perd-pav"></div>
   </section>
   <section class="card">
     <h2>Sale stimato nel tempo (kg)</h2>
@@ -302,6 +323,64 @@ function linea(svg, punti, W, H, riserva) {
   svg.appendChild(el("text", {x: W - R, y: H - 4, "text-anchor": "end"}, dt(t1)));
 }
 
+// Indizi di perdita (sperimentale): card, banner e notti. Restituisce il simbolo per il titolo.
+function mostraPerdite(p) {
+  const av = $("avviso-perdite"), badge = $("perd-badge"), sez = $("sez-perdite");
+  av.hidden = true; sez.hidden = true;
+  if (!p || p.stato === "nd") {
+    badge.className = "badge b-nd"; badge.textContent = "Dati insufficienti";
+    $("perd-dett").textContent = p && p.errore ? "Errore nel calcolo: " + p.errore
+      : "Servono giorni completi di quarti d'ora (comando «storico» o qualche giorno di registrazione).";
+    return "";
+  }
+  const dd = x => new Date(x + "T12:00").toLocaleDateString("it-IT", {day: "2-digit", month: "2-digit"});
+  const q = p.soglie.quarti;
+  const ultima = p.ultima_attivi == null ? "" : p.ultima_attivi + " quarti d'ora su " + q;
+  const pavRecord = p.motivi.includes("pavimento");
+  if (p.stato === "allarme") {
+    badge.className = "badge b-riserva"; badge.textContent = "Possibile perdita";
+    $("perd-dett").textContent = "Le ultime 3 notti hanno consumo anomalo (ultima: " + ultima + ").";
+    av.hidden = false; av.className = "avviso rosso";
+    av.textContent = "Possibile perdita d'acqua: da 3 notti di fila l'acqua scorre per buona parte della notte (" +
+      ultima + " nell'ultima). Chiudi tutti i rubinetti e controlla se il contatore di casa gira; se gira, c'è una " +
+      "perdita (controlla anche la valvola di scarico del depuratore). È un indizio sperimentale, non una diagnosi.";
+  } else if (p.stato === "attenzione") {
+    badge.className = "badge b-avviso"; badge.textContent = "Attenzione";
+    $("perd-dett").textContent = p.motivi.includes("ultima_notte")
+      ? "Ultima notte anomala (" + ultima + "): una sola notte non basta, controllo se si ripete."
+      : "Il pavimento dei consumi è il più alto mai registrato.";
+    av.hidden = false; av.className = "avviso";
+    av.textContent = p.motivi.includes("ultima_notte")
+      ? "Consumo notturno anomalo nell'ultima notte (" + ultima + "): una notte sola non basta, vedo se si ripete."
+      : "Il consumo minimo degli ultimi 14 giorni è il più alto mai registrato: può essere una perdita lenta, " +
+        "oppure semplicemente nessuna assenza da casa. Confrontalo con i tuoi giorni fuori.";
+  } else {
+    badge.className = "badge b-ok"; badge.textContent = "Nessun indizio";
+    $("perd-dett").textContent = p.notti_valide + " notti valide analizzate, nella norma.";
+  }
+  if (p.stato === "allarme" && pavRecord) av.textContent += " Anche il pavimento dei consumi è il più alto mai registrato.";
+  sez.hidden = !p.notti.length;
+  $("perd-spiega").textContent = "Quarti d'ora con consumo tra le 01:00 e le 05:00 (su " + q + "). Sospetta da " +
+    p.soglie.sospetta + ", continua da " + p.soglie.continua + ". A tratteggio: notti scartate (rigenerazione o interruzione di corrente).";
+  const box = $("perd-notti");
+  box.replaceChildren();
+  for (const n of p.notti) {
+    const c = document.createElement("div"); c.className = "notte";
+    const i = document.createElement("i");
+    i.className = n.scartata ? "n-scartata" : "n-" + n.giudizio;
+    c.title = dd(n.data) + (n.scartata ? ": scartata (" + n.scartata + ")"
+      : ": " + n.attivi + "/" + q + " quarti, " + n.litri + " L");
+    const t = document.createElement("div"); t.textContent = dd(n.data);
+    const v = document.createElement("div"); v.textContent = n.scartata ? "–" : n.attivi + "/" + q;
+    c.append(i, t, v); box.appendChild(c);
+  }
+  $("perd-leg").textContent = "Verde: nella norma · arancione: sospetta · rosso: continua.";
+  const f = p.pavimento;
+  $("perd-pav").textContent = !f ? "" : "Pavimento (minimo su 14 giorni senza rigenerazioni, dal " + dd(f.dal) +
+    "): " + f.minimo + " L" + (f.mediana == null ? "" : "; storico: mediana " + f.mediana + " L, massimo " + f.massimo + " L") + ".";
+  return {allarme: "🔴 ", attenzione: "🟠 "}[p.stato] || "";
+}
+
 function mostra(d) {
   const u = d.ultima;
   $("aggiornato").textContent = u
@@ -379,6 +458,7 @@ function mostra(d) {
     $("autonomia").textContent = "–";
     $("autonomia-dett").textContent = "";
   }
+  simbolo = mostraPerdite(d.perdite) + simbolo;
   document.title = simbolo + "Addolcitore BWT";
   $("imp-attuale").textContent = d.config.mac
     ? "Addolcitore configurato: " + d.config.mac : "Nessun addolcitore configurato.";

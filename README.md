@@ -224,7 +224,13 @@ python bwt_perla.py analisi-perdite --giorno oggi    # i quarti d'ora di un gior
   affidabile, e usa i 5 anni dell'apparecchio.
 
 Avvisa solo se **3 notti valide di fila** sono anomale, oppure se il pavimento e'
-il piu' alto mai registrato. E' un indizio, non una diagnosi: una perdita piccola
+il piu' alto mai registrato. Gli stessi indizi compaiono nella **pagina web**: card «Perdite
+(sperimentale)», una riga di quadratini con le ultime notti (verde / arancione /
+rosso, a tratteggio le notti scartate) e un banner. Il banner e' **rosso** con 3 notti
+anomale di fila («possibile perdita»), **arancione** con l'ultima notte anomala o con il
+pavimento al massimo storico; il simbolo 🔴/🟠 compare anche nel titolo della scheda.
+Il dato e' in `/api/riepilogo` alla chiave `perdite`; un errore nel calcolo non toglie la
+pagina, e la card lo mostra. Gli avvisi fuori dalla pagina non ci sono ancora. E' un indizio, non una diagnosi: una perdita piccola
 (sotto circa 1 L/h) si perde nel rumore dei quarti d'ora in litri interi, e un
 uso notturno che non ricordi sembra una perdita. Il controllo vero e' il
 contatore di casa con tutto fermo. `--giorno` serve a vedere la «firma» di un
