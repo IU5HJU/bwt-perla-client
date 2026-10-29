@@ -251,6 +251,29 @@ dallo stesso sito; la ricerca mostra anche dispositivi altrui, ma ci si
 collega solo a quello scelto da te. Per l'avvio al boot della sola pagina:
 `deploy/bwt-perla-web.service`. L'API JSON e' su `/api/riepilogo`.
 
+## Aggiornare il Raspberry (`aggiorna.sh`)
+
+Un `git pull` non ricarica il servizio che sta girando: resta in memoria il
+codice vecchio finche' non lo riavvii. `aggiorna.sh` fa tutto in sicurezza:
+
+```
+cd ~/bwt-perla-client
+./aggiorna.sh --controlla      # dice se serve aggiornare o riavviare (uscita 3) o e' tutto a posto (0)
+./aggiorna.sh                  # scarica, prova, riavvia
+./aggiorna.sh --solo-riavvia   # riavvia soltanto, senza scaricare
+```
+
+- scarica solo in *fast-forward* da `origin/main`: niente merge automatici;
+- si ferma, senza toccare nulla, se non sei su `main`, se hai modifiche locali
+  non salvate o commit che su GitHub non esistono;
+- esegue i test **prima** del riavvio: se falliscono il servizio resta com'e' e
+  ti indica come tornare indietro;
+- riavvia anche se il codice e' gia' aggiornato ma il servizio e' piu' vecchio
+  dei file (pull fatto e riavvio dimenticato);
+- dopo il riavvio verifica che il servizio sia attivo e che la pagina risponda.
+
+Variabili: `SERVIZIO` (predefinito `bwt-perla`), `PORTA` (`8765`), `PYTHON`.
+
 ## Stato
 
 Lettura e decodifica verificate su hardware (Raspberry Pi 3B + addolcitore
