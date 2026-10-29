@@ -54,6 +54,13 @@
   svg { overflow: visible; }
   .assi { stroke: var(--line); }
   .barra-g { fill: var(--accent); }
+  .hit { fill: transparent; pointer-events: all; }
+  [data-tip] { cursor: default; -webkit-tap-highlight-color: transparent; }
+  #tip { position: fixed; z-index: 30; max-width: min(260px, calc(100vw - 16px));
+         background: var(--ink); color: var(--bg); font-size: .8rem; line-height: 1.3;
+         padding: 6px 9px; border-radius: 8px; pointer-events: none;
+         box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
+  #tip[hidden] { display: none; }
   .linea { fill: none; stroke: var(--accent); stroke-width: 2; }
   .evento { fill: var(--bad); }
   details { margin-top: 12px; }
@@ -252,11 +259,43 @@ const dataIt = iso => iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice
 
 function larg(svg) { return Math.max(300, Math.round(svg.parentElement.clientWidth - 28)); }
 
+// Descrizione al passaggio del mouse (tooltip) e, su telefono, al tocco.
+const tipEl = document.createElement("div");
+tipEl.id = "tip"; tipEl.setAttribute("role", "tooltip"); tipEl.hidden = true;
+document.body.appendChild(tipEl);
+let tipDi = null, tipTimer = null;
+function nascondiTip() { tipEl.hidden = true; tipDi = null; clearTimeout(tipTimer); }
+function mostraTip(bersaglio, tocco) {
+  tipDi = bersaglio;
+  tipEl.textContent = bersaglio.dataset.tip;
+  tipEl.hidden = false;
+  const r = bersaglio.getBoundingClientRect(), t = tipEl.getBoundingClientRect();
+  const x = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), window.innerWidth - t.width - 8);
+  const sopra = r.top - t.height - 6;
+  tipEl.style.left = x + "px";
+  tipEl.style.top = (sopra >= 4 ? sopra : r.bottom + 6) + "px";
+  clearTimeout(tipTimer);
+  if (tocco) tipTimer = setTimeout(nascondiTip, 4000);
+}
+document.addEventListener("pointerover", e => {
+  if (e.pointerType !== "mouse") return;
+  const b = e.target.closest("[data-tip]");
+  if (b) { if (b !== tipDi) mostraTip(b, false); } else nascondiTip();
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-tip]");
+  if (!b) nascondiTip();
+  else if (b === tipDi && !tipEl.hidden && e.pointerType !== "mouse") nascondiTip();
+  else mostraTip(b, e.pointerType !== "mouse");
+});
+window.addEventListener("scroll", nascondiTip, {passive: true});
+
 function bars(svg, items, labelFn, W, H, evento, opz) {
   opz = opz || {};
   W = larg(svg);
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
   svg.replaceChildren();
+  nascondiTip();
   if (!items.length) {
     svg.appendChild(el("text", {x: W / 2, y: H / 2, "text-anchor": "middle"}, "Nessun dato"));
     return;
@@ -271,10 +310,11 @@ function bars(svg, items, labelFn, W, H, evento, opz) {
   }
   items.forEach((it, i) => {
     const h = (H - T - B) * it.v / max;
-    const r = el("rect", {x: L + i * w + w * .12, y: H - B - h, width: w * .76,
-                          height: Math.max(h, 0), rx: 2, class: "barra-g"});
-    r.appendChild(el("title", {}, it.tip));
-    svg.appendChild(r);
+    svg.appendChild(el("rect", {x: L + i * w + w * .12, y: H - B - h, width: w * .76,
+                                height: Math.max(h, 0), rx: 2, class: "barra-g"}));
+    // area sensibile a tutta altezza: con il dito una barra bassa o sottile non si centra
+    svg.appendChild(el("rect", {x: L + i * w, y: T, width: w, height: H - T - B, class: "hit",
+                                "data-tip": it.tip}));
     if (evento && it.ev) svg.appendChild(el("circle", {cx: L + i * w + w / 2, cy: H - B + 8, r: 3, class: "evento"}));
   });
   if (opz.sep) items.forEach((it, i) => {
@@ -368,7 +408,7 @@ function mostraPerdite(p) {
     const c = document.createElement("div"); c.className = "notte";
     const i = document.createElement("i");
     i.className = n.scartata ? "n-scartata" : "n-" + n.giudizio;
-    c.title = dd(n.data) + (n.scartata ? ": scartata (" + n.scartata + ")"
+    c.dataset.tip = dd(n.data) + (n.scartata ? ": scartata (" + n.scartata + ")"
       : ": " + n.attivi + "/" + q + " quarti, " + n.litri + " L");
     const t = document.createElement("div"); t.textContent = dd(n.data);
     const v = document.createElement("div"); v.textContent = n.scartata ? "–" : n.attivi + "/" + q;
