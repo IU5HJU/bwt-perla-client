@@ -33,9 +33,18 @@ RABBOCCHI_JSON = "rabbocchi.json"
 
 LIVELLI = ("abbondante", "riserva", "sconosciuto")
 # Frazione del serbatoio, finche' non c'e' una misura. Ricavata dall'abitudine
-# dichiarata (rabbocco ogni ~40 giorni con ~320 g/giorno di consumo: restano
-# ~1,2 kg, cioe' l'8-9%); il primo rabbocco "in riserva" misurato la sostituisce.
-RISERVA_PROVVISORIA = 0.10
+# dichiarata (rabbocco ogni ~40 giorni) e dal regime attuale di ~0,24
+# rigenerazioni al giorno da 1200 g l'una (~290 g al giorno): in 40 giorni restano
+# ~2,5 kg, cioe' il 18%. Il primo rabbocco "in riserva" misurato la sostituisce.
+RISERVA_PROVVISORIA = 0.18
+
+# Uso previsto (rigenerazioni e litri al giorno): media sugli ultimi GIORNI_USO
+# giorni dello storico dell'apparecchio, riletta al piu' una volta al giorno. Una
+# media su 30 giorni oscilla di ~6 giorni per una sola rigenerazione in piu' o in
+# meno; su un anno e' stabile e non risente di assenze lontane nel tempo.
+GIORNI_USO = 365
+USO_VALIDITA_H = 20
+USO_RETRY_H = 1
 GIORNI_AVVISO = 7            # preavviso prima di arrivare in riserva
 MIN_RIGEN_CICLO = 3          # rigenerazioni minime per fidarsi di un ciclo
 MIN_LITRI_CICLO = 300        # litri minimi per misurare i grammi per litro
@@ -333,6 +342,46 @@ class Tracker:
         return registra_rabbocco(self.dir, kg_dopo, kg_aggiunti, livello_prima,
                                  rigen_gia_usate, now)
 
+    # ── uso a lungo periodo ─────────────────────────────────────────
+
+    def uso_da_aggiornare(self, now: datetime) -> bool:
+        """True se conviene rileggere lo storico lungo: l'ultimo aggiornamento e'
+        vecchio e un eventuale tentativo fallito non e' troppo recente."""
+        def quando(chiave, sotto=None):
+            v = (self.state.get(chiave) or {}).get("aggiornato") if sotto else self.state.get(chiave)
+            try:
+                return datetime.fromisoformat(v)
+            except (TypeError, ValueError):
+                return None
+        agg, ten = quando("uso", True), quando("uso_tentato")
+        if agg and now - agg < timedelta(hours=USO_VALIDITA_H):
+            return False
+        return not (ten and now - ten < timedelta(hours=USO_RETRY_H))
+
+    def segna_tentativo_uso(self, now: datetime) -> None:
+        self.state["uso_tentato"] = now.isoformat(timespec="seconds")
+        self._salva()
+
+    def imposta_uso(self, giorni: list[dict], now: datetime) -> None:
+        """Rigenerazioni e litri al giorno medi sui `giorni` letti (anche quelli
+        a zero: le assenze fanno parte dell'uso reale)."""
+        if not giorni:
+            return
+        n = len(giorni)
+        self.state["uso"] = {
+            "rigenerazioni_al_giorno": sum(g["rigen"] for g in giorni) / n,
+            "litri_al_giorno": sum(g["litri"] for g in giorni) / n,
+            "giorni": n, "aggiornato": now.isoformat(timespec="seconds"),
+        }
+        self._salva()
+
+    def _uso(self, rate_30g):
+        """-> (rigenerazioni/giorno, litri/giorno, giorni della media)."""
+        u = self.state.get("uso")
+        if u:
+            return u["rigenerazioni_al_giorno"], u["litri_al_giorno"], u["giorni"]
+        return rate_30g, self.state.get("litri_giorno"), 30
+
     def analisi(self, rate=None):
         bc = self.state.get("bc")
         if not bc:
@@ -340,13 +389,16 @@ class Tracker:
         if rate is None:
             u = self.ultima_riga()
             rate = _num(u["rigenerazioni_al_giorno_30g"]) if u else None
+        rig_g, litri_g, base = self._uso(rate)
         a = analisi_sale(carica_rabbocchi(self.dir),
                          self.state["rigenerazioni_totali"],
-                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate,
-                         self.state["litri_totali"], self.state.get("litri_giorno"))
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rig_g,
+                         self.state["litri_totali"], litri_g)
         if a:
             sd = self.state.get("stato_sale") or {}
             a["stato_da"] = sd.get("da") if sd.get("stato") == a["stato"] else None
+            a["rigenerazioni_al_giorno"] = None if rig_g is None else round(rig_g, 3)
+            a["uso_base_giorni"] = base
         return a
 
     # ── ciclo di lettura ────────────────────────────────────────────
@@ -395,13 +447,15 @@ class Tracker:
         if righe_q:
             _scrivi_righe(self.dir / QUARTI_CSV, QUARTI_COLONNE, righe_q)
 
-        # frequenza media delle rigenerazioni sui giorni letti
+        # frequenza media delle rigenerazioni sui giorni letti (30): e' la colonna
+        # del CSV e il ripiego se lo storico lungo non e' ancora disponibile
         rate = (sum(g["rigen"] for g in giorni) / len(giorni)) if giorni else None
         if giorni:     # litri al giorno secondo lo storico dell'apparecchio
             s["litri_giorno"] = sum(g["litri"] for g in giorni) / len(giorni)
+        rig_g, litri_g, _ = self._uso(rate)
         a = analisi_sale(carica_rabbocchi(self.dir), s["rigenerazioni_totali"],
-                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rate,
-                         s["litri_totali"], s.get("litri_giorno"))
+                         bc["sale_per_rigenerazione_g"], bc["capacita_g"], rig_g,
+                         s["litri_totali"], litri_g)
         sale_g = pct = autonomia = None
         if a:
             sale_g, pct, autonomia = a["residuo_g"], a["pct"], a["giorni_a_esaurimento"]

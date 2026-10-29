@@ -153,7 +153,9 @@ def riepilogo(righe: list[dict], dal: str | None = None) -> dict:
         "giorni_per_rigenerazione": round(len(righe) / rig, 1) if rig else None,
         "per_giorno_settimana": {GIORNI_SETTIMANA[i]: {"giorni": len(v), "media": media(v)}
                                  for i, v in sorted(per_gs.items())},
-        "per_mese_dell_anno": {m: {"giorni": len(v), "media": media(v)}
+        "per_mese_dell_anno": {m: {"giorni": len(v), "media": media(v),
+                                   "giorni_a_zero": sum(1 for x in v if x == 0),
+                                   "media_con_consumo": media([x for x in v if x > 0])}
                                for m, v in sorted(per_mese.items())},
         # se la datazione dei giorni fosse sfalsata, il picco del fine settimana
         # non starebbe su sab/dom in tutti gli anni: serve a controllarla
@@ -230,8 +232,12 @@ def righe_riepilogo(r: dict, profilo: dict | None = None) -> list[str]:
             for g in r["giorni_con_piu_rigenerazioni"]))
     out.append(f"Giorni con interruzione di corrente: {r['giorni_blackout']}.")
     mesi = ("gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic")
-    out.append("Per mese dell'anno (media L/giorno su tutti gli anni):")
-    out.append("  " + "  ".join(f"{mesi[m - 1]} {v['media']:.0f}" for m, v in r["per_mese_dell_anno"].items()))
+    out.append("Per mese dell'anno, su tutti gli anni (separa le assenze dal consumo ridotto):")
+    out.append("  mese   media  a zero  media sui giorni con consumo")
+    for m, v in r["per_mese_dell_anno"].items():
+        zero = round(100 * v["giorni_a_zero"] / v["giorni"])
+        out.append(f"  {mesi[m - 1]}  {v['media']:7.0f}  {zero:4d}%  "
+                   f"{'-' if v['media_con_consumo'] is None else round(v['media_con_consumo']):>6}")
     if profilo and (profilo["giorni"]["feriali"] or profilo["giorni"]["weekend"]):
         g = profilo["giorni"]
         out.append(f"Profilo orario, litri medi per ora ({g['feriali']} giorni feriali, "

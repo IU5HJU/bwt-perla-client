@@ -55,7 +55,7 @@ rigenerazione e' proporzionale alla resina esaurita (rigenera solo la parte
 consumata, al massimo ogni 7 giorni), quindi il sale usato segue i litri e non il
 numero di rigenerazioni. Finche' non c'e' un ciclo misurato si usa il valore
 dichiarato dall'apparecchio per rigenerazione (1200 g) e una riserva provvisoria
-(10% del serbatoio, ricavato da un rabbocco ogni ~40 giorni): i banner lo dicono ("stima provvisoria"). Cicli con troppo
+(18% del serbatoio, ricavato da un rabbocco ogni ~40 giorni e da ~0,24 rigenerazioni al giorno): i banner lo dicono ("stima provvisoria"). Cicli con troppo
 pochi litri o rigenerazioni, o con un consumo incoerente (per esempio un kg
 digitato male), vengono scartati e segnalati. Lo stato del sale e' `ok`, `avviso`
 (riserva entro 7 giorni) o `riserva`: l'esaurimento non e' mai lo scenario previsto.
@@ -74,6 +74,13 @@ una variante vicina ma non identica, quindi i numeri sotto sono indicativi.
 - Per gli addolcitori con controllo del sale via app, dopo ogni rabbocco *la
   quantita' di sale va inserita nell'app*: e' per questo che il livello letto via
   Bluetooth resta a 0 se non lo scrive nessuno.
+
+**Uso previsto.** La frequenza delle rigenerazioni e i litri al giorno usati nelle
+previsioni sono la media degli **ultimi 12 mesi** dello storico dell'apparecchio
+(al massimo fino alla messa in servizio, vedi `messa_in_servizio` in `config.json`),
+riletta al piu' una volta al giorno: una media su 30 giorni oscilla di circa sei
+giorni per una sola rigenerazione in piu' o in meno. Se la lettura lunga fallisce si
+ripiega sui 30 giorni. La pagina indica su quanti giorni e' calcolata.
 
 **Notifica:** quando mancano 7 giorni alla riserva la pagina mostra un banner
 arancione con la data prevista, e uno rosso, con il giorno d'inizio, quando il

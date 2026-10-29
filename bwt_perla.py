@@ -29,7 +29,7 @@ from bleak import BleakClient, BleakScanner
 
 from config import carica_config, salva_config, valida_mac
 import storico
-from tracker import Tracker
+from tracker import GIORNI_USO, Tracker
 
 U_SERVICE = "d973f2e0-b19e-11e2-9e96-0800200c9a66"
 U_NOTIFY = "d973f2e1-b19e-11e2-9e96-0800200c9a66"     # storico (notify)
@@ -263,8 +263,29 @@ async def cmd_read(mac, dump=False):
         print("  ", [e["litri"] for e in d])
 
 
+def giorni_per_uso(b: dict, data_dir, oggi) -> int:
+    """Quanti giorni leggere per l'uso a lungo periodo: GIORNI_USO, ma non oltre
+    quelli scritti nel registro ne' oltre la messa in servizio (i giorni prima
+    sono a zero perche' l'apparecchio non era installato)."""
+    n = GIORNI_USO
+    if not b["buffer_giorni_ciclico"]:
+        n = min(n, b["idx_giorni"])
+    ms = carica_config(data_dir).get("messa_in_servizio")
+    if ms:
+        try:
+            n = min(n, (oggi - datetime.strptime(ms, "%Y-%m-%d").date()).days)
+        except ValueError:
+            pass
+    return max(n, 0)
+
+
 async def ciclo(mac: str, tr: Tracker) -> dict:
-    """Una lettura: BROADCAST, quarti nuovi, ultimi 30 giorni -> CSV."""
+    """Una lettura: BROADCAST, quarti nuovi, ultimi 30 giorni -> CSV. Al piu' una
+    volta al giorno rilegge anche l'ultimo anno di giorni, per la frequenza di
+    rigenerazione usata nelle previsioni; se quella lettura fallisce si va avanti
+    con i 30 giorni."""
+    adesso = datetime.now()
+    lungo = []
     async with BleakClient(mac, timeout=30) as cl:
         p = Perla(cl)
         await p.open()
@@ -273,7 +294,17 @@ async def ciclo(mac: str, tr: Tracker) -> dict:
         n = tr.quarti_da_leggere(b["idx_quarti"])
         q = await p.history(ADDR_QUARTI, MAX_QUARTI, b["idx_quarti"], n, True) if n else []
         d = await p.history(ADDR_GIORNI, MAX_GIORNI, b["idx_giorni"], 30, False)
-    return tr.applica(datetime.now(), b, raw, q, d)
+        n_uso = giorni_per_uso(b, tr.dir, adesso.date())
+        if n_uso >= 30 and tr.uso_da_aggiornare(adesso):
+            tr.segna_tentativo_uso(adesso)
+            try:
+                lungo = await p.history(ADDR_GIORNI, MAX_GIORNI, b["idx_giorni"], n_uso,
+                                        False, tentativi=3)
+            except Exception as e:
+                print(f"{adesso:%H:%M:%S}  storico lungo non letto ({e!r}): uso i 30 giorni",
+                      flush=True)
+    tr.imposta_uso(lungo, adesso)
+    return tr.applica(adesso, b, raw, q, d)
 
 
 async def ciclo_con_tentativi(mac, tr, tentativi=3, pausa=30, fn=None):
