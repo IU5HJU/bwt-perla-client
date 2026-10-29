@@ -26,6 +26,8 @@ QUARTI_GIORNO = 96
 # questa tolleranza dal minimo non sono distinguibili.
 TOLLERANZA_SCARTO = 1.5
 QUARTO = timedelta(minutes=15)
+QUARTI_CIRCOLARI = 2880      # il registro dei quarti d'ora dell'apparecchio e' circolare
+FINESTRA_ALLINEAMENTO = 96   # righe (un giorno) per lo scarto abituale tra indice e orario
 GIORNI_SETTIMANA = ("lun", "mar", "mer", "gio", "ven", "sab", "dom")
 GIORNI_COLONNE = ["indice", "inizio_slot", "data", "litri", "rigenerazioni", "blackout"]
 QUARTI_COLONNE = ["indice", "inizio_approx", "litri", "rigenerazione", "blackout"]
@@ -250,6 +252,39 @@ def righe_riepilogo(r: dict, profilo: dict | None = None) -> list[str]:
     return out
 
 
+def riallinea_live(live: list[dict]) -> list[dict]:
+    """Orari dei quarti dal vivo coerenti con l'indice.
+
+    L'ora di un quarto si assegna alla lettura (ultimo multiplo di 15 minuti), ma il
+    contatore dell'apparecchio cambia quarto con un piccolo scarto rispetto al
+    Raspberry: se la lettura cade in quello scarto un quarto prende l'etichetta del
+    successivo, e nella serie compare un buco (o due quarti con lo stesso orario, e
+    allora uno dei due sparisce). Gli indici invece sono assoluti e consecutivi.
+    Si calcola per ogni riga lo scarto tra orario e indice, si prende quello abituale
+    (mediana su un giorno di righe) e si corregge solo chi se ne discosta di un quarto.
+    Scarti piu' grandi (apparecchio rimasto senza corrente, registrazione ferma a
+    lungo) si lasciano com'e'."""
+    if len(live) < 3:
+        return live
+    k, prec, ks = 0, None, []
+    for r in live:
+        i = int(r["idx"])
+        if prec is not None:
+            k += (i - prec) % QUARTI_CIRCOLARI
+        ks.append(k)
+        prec = i
+    t = [datetime.fromisoformat(r["inizio_approx"]) for r in live]
+    scarto = [round((t[j] - t[0]) / QUARTO) - ks[j] for j in range(len(live))]
+    mezzo = FINESTRA_ALLINEAMENTO // 2
+    out = []
+    for j, r in enumerate(live):
+        abituale = int(statistics.median_low(scarto[max(0, j - mezzo): j + mezzo + 1]))
+        if abs(scarto[j] - abituale) == 1:
+            r = {**r, "inizio_approx": (t[0] + QUARTO * (ks[j] + abituale)).isoformat(timespec="minutes")}
+        out.append(r)
+    return out
+
+
 def unisci_quarti(live: list[dict], storico_q: list[dict]) -> list[tuple[datetime, int]]:
     """Quarti d'ora della registrazione + quelli dello storico, come (inizio, litri).
 
@@ -262,6 +297,7 @@ def unisci_quarti(live: list[dict], storico_q: list[dict]) -> list[tuple[datetim
     """
     out: dict[datetime, int] = {}
     live_idx = set()
+    live = riallinea_live(live)
     for r in live:
         out[datetime.fromisoformat(r["inizio_approx"])] = int(r["litri"])
         live_idx.add(int(r["idx"]))

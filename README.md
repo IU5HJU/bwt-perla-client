@@ -284,6 +284,20 @@ dallo stesso sito; la ricerca mostra anche dispositivi altrui, ma ci si
 collega solo a quello scelto da te. Per l'avvio al boot della sola pagina:
 `deploy/bwt-perla-web.service`. L'API JSON e' su `/api/riepilogo`.
 
+**Descrizione dei valori.** Passando il mouse su una barra dei grafici (o sulle
+notti della card «Perdite») compare una finestrella (*tooltip*) con data e litri; da
+telefono basta **toccare** la barra (si chiude con un secondo tocco, toccando altrove
+o dopo 4 secondi). L'area sensibile e' a tutta altezza, cosi' si centra anche una barra
+bassa o sottile.
+
+**Orari dei quarti d'ora.** L'ora di ogni quarto si assegna alla lettura (ultimo
+multiplo di 15 minuti), ma il contatore dell'apparecchio cambia quarto con un piccolo
+scarto rispetto al Raspberry: capitava un quarto d'ora «saltato» nella tabella (o due con
+la stessa ora, e allora uno spariva). Ora gli orari seguono l'indice assoluto del
+registro, che e' consecutivo: si corregge solo chi si discosta di un quarto dallo scarto
+abituale; scarti piu' grandi (registrazione ferma a lungo) restano come sono.
+`quarti.csv` non viene modificato, la correzione si applica alla lettura.
+
 ## Aggiornare il Raspberry (`aggiorna.sh`)
 
 Un `git pull` non ricarica il servizio che sta girando: resta in memoria il
