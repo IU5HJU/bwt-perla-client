@@ -180,6 +180,25 @@ rigenerazioni (una ogni N giorni), la media per giorno della settimana, i totali
 per anno e per mese dell'anno, la media per giorno della settimana **anno per anno** (serve a controllare la datazione: il picco del fine settimana deve stare su sab/dom in tutti gli anni), i giorni con due o piu' rigenerazioni e con interruzioni di corrente (interventi, prove di avvio) e il **profilo orario** (litri medi per ora, feriali
 contro fine settimana, sugli ultimi 30 giorni a quarti d'ora).
 
+**Consumi e calendario: `analisi-calendario`.** Confronta i totali giornalieri con un
+calendario italiano calcolato in locale (nessun accesso a internet): le festivita'
+nazionali fisse, la Pasquetta (dalla formula della Pasqua) e, a richiesta, il
+patrono della citta' (`--patrono MM-GG`, per esempio `12-07`):
+
+```
+python bwt_perla.py analisi-calendario --da 2023-03-22 --patrono 12-07
+```
+I giorni sono divisi in **feriale, ponte probabile** (feriale tra due giorni non
+lavorativi), **festivo infrasettimanale, sabato, domenica**. Per ognuna stampa
+giorni, giorni a zero, media, mediana e deviazione standard. Poi misura quanto i
+totali separano lavorativi e non lavorativi: **AUC** (0,50 = nessuna separazione,
+1,00 = perfetta) e l'accuratezza della migliore soglia sui litri; i giorni a zero
+(assenze) sono esclusi dal confronto perche' non dicono se il giorno era
+lavorativo. Elenca anche i feriali con consumo da festivo e i non lavorativi con
+consumo da feriale (ferie, smart working, fuori casa). Con le sole medie di un
+nucleo familiare tipico ci si aspetta una correlazione visibile ma non netta
+(AUC intorno a 0,7): per distinguere meglio servono i profili orari.
+
 **Limiti.** Gli orari dei quarti sono approssimati come nella registrazione
 normale; i giorni sono a multipli di 10 L; piu' si va indietro piu' la datazione si
 fida dell'ipotesi di slot da 24 ore senza interruzioni; non so quanti giorni
