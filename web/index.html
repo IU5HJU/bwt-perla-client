@@ -363,7 +363,10 @@ function mostra(d) {
       : a.g_per_rigenerazione + " g per rigenerazione (" +
         (a.g_calibrato ? "misurato su " + cicli : "valore dichiarato dall'apparecchio") + ")") +
       (a.cicli_scartati ? ", " + a.cicli_scartati + " ciclo/i scartato/i perché incoerente/i" : "");
-    $("autonomia-dett").textContent = "Soglia di riserva: " + soglia + ". Consumo: " + cons + ".";
+    const uso = a.rigenerazioni_al_giorno == null ? "" :
+      " Uso previsto: " + a.rigenerazioni_al_giorno.toLocaleString("it-IT") +
+      " rigenerazioni al giorno (media su " + a.uso_base_giorni + " giorni).";
+    $("autonomia-dett").textContent = "Soglia di riserva: " + soglia + ". Consumo: " + cons + "." + uso;
   } else {
     badge.className = "badge b-nd";
     badge.textContent = "Nessun rabbocco registrato";

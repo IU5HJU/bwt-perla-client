@@ -54,19 +54,21 @@ class AnalisiTest(unittest.TestCase):
         a = stato(2, rabbocchi=[rab(0)])
         self.assertEqual(a["g_per_rigenerazione"], 1200)
         self.assertFalse(a["g_calibrato"] or a["riserva_calibrata"])
-        self.assertEqual(a["riserva_g"], 1400)       # 10% di 14 kg
+        self.assertEqual(a["riserva_g"], 2520)       # 18% di 14 kg
         self.assertEqual(a["residuo_g"], 14000 - 2 * 1200)
 
     def test_ciclo_tipico_di_circa_40_giorni(self):
-        # abitudine dichiarata: rabbocco ogni ~40 giorni. 0,267 rigenerazioni al
-        # giorno = una ogni 3,75 giorni, 1200 g l'una (valori dell'apparecchio)
+        # abitudine dichiarata: rabbocco ogni ~40 giorni. Regime attuale: ~0,243
+        # rigenerazioni al giorno (media degli ultimi 12 mesi dell'apparecchio),
+        # 1200 g l'una = ~292 g al giorno; riserva provvisoria al 18% (2,5 kg)
         def a(rigenerazioni):
-            return analisi_sale([rab(0)], rigenerazioni, 1200, 14000, 0.267)
+            return analisi_sale([rab(0)], rigenerazioni, 1200, 14000, 0.243)
         self.assertEqual(a(0)["stato"], "ok")
-        self.assertEqual(a(6)["stato"], "ok")          # giorno ~22
-        self.assertEqual(a(9)["stato"], "avviso")      # giorno ~34: manca meno di una settimana
-        self.assertEqual(a(11)["stato"], "riserva")    # giorno ~41: quando di solito rabbocchi
-        self.assertEqual(a(9)["giorni_a_riserva"], 6)    # (3200 - 1400) / 320 g al giorno
+        self.assertEqual(a(0)["giorni_a_riserva"], 39)          # (14000-2520)/292
+        self.assertEqual(a(7)["stato"], "ok")                   # giorno ~29: 11 giorni alla riserva
+        self.assertEqual(a(8)["stato"], "avviso")               # giorno ~33: 6 giorni
+        self.assertEqual(a(8)["giorni_a_riserva"], 6)
+        self.assertEqual(a(10)["stato"], "riserva")             # giorno ~41: quando di solito rabbocchi
 
     def test_ciclo_incoerente_scartato(self):
         # 12 kg per 3 rigenerazioni = 4000 g, 3,3 volte il nominale: un errore
