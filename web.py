@@ -108,6 +108,14 @@ def riepilogo(data_dir, now: datetime | None = None,
         rig = s_g["rigenerazioni"] if s_g and s_g["rigenerazioni"] is not None else rigen_g.get(g, 0)
         giorni.append({"giorno": g, "litri": s_g["litri"] if s_g else 0,
                        "rigenerazioni": rig, "blackout": black_g.get(g, 0)})
+    # rigenerazioni per giorno su tutto lo storico + registrazione, per la scheda dedicata
+    per_giorno = {d: (v["rigenerazioni"] if v["rigenerazioni"] is not None else rigen_g.get(d, 0))
+                  for d, v in serie["giorni"].items()}
+    for d, n in rigen_g.items():
+        per_giorno.setdefault(d, n)
+    rate_uso = tr.analisi(_num(ultima["rigenerazioni_al_giorno_30g"]) if ultima else None)
+    stat_rig = storico.statistiche_rigenerazioni(
+        per_giorno, now.date(), rate_uso["rigenerazioni_al_giorno"] if rate_uso else None)
     # i giorni prima del primo dato (registrazione o storico) non hanno dati: si tolgono
     primo = min(serie["giorni"].keys() | rigen_g.keys(), default=None)
     giorni = [g for g in giorni if primo and g["giorno"] >= primo]
@@ -135,6 +143,7 @@ def riepilogo(data_dir, now: datetime | None = None,
                    "blackout": tr.state["blackout_totali"]},
         "media_litri_giorno_7g": round(sum(complete) / len(complete)) if complete else None,
         "sale": sale, "giorni": giorni, "ore": ore,
+        "rigenerazioni": {**stat_rig, "litri_7g": sum(o["litri"] for o in ore)},
     }
 
 
