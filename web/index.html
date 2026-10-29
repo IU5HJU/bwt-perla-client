@@ -227,6 +227,8 @@ function el(tag, attrs, text) {
 const fmt = n => (n === null || n === undefined || n === "") ? "–"
   : Number(n).toLocaleString("it-IT");
 
+const dataIt = iso => iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4);
+
 function larg(svg) { return Math.max(300, Math.round(svg.parentElement.clientWidth - 28)); }
 
 function bars(svg, items, labelFn, W, H, evento, opz) {
@@ -427,7 +429,7 @@ function mostra(d) {
 
   bars($("g-giorni"), d.giorni.map(g => ({
     v: g.litri, ev: g.rigenerazioni > 0,
-    tip: g.giorno + ": " + g.litri + " L" + (g.rigenerazioni ? " · rigenerazione" : ""),
+    tip: dataIt(g.giorno) + ": " + g.litri + " L" + (g.rigenerazioni ? " · rigenerazione" : ""),
     g: g.giorno
   })), i => i.g.slice(8, 10) + "/" + i.g.slice(5, 7), 640, 200, true);
 
@@ -462,7 +464,7 @@ function disegnaOre(d) {
   const gg = o => o.slice(8, 10) + "/" + o.slice(5, 7);
   bars($("g-ore"), ore.map(o => ({
     v: o.litri, o: o.ora,
-    tip: gg(o.ora) + " " + o.ora.slice(11, 13) + ":00 – " + o.litri + " L"
+    tip: dataIt(o.ora) + " " + o.ora.slice(11, 13) + ":00 – " + o.litri + " L"
   })), sett
     ? i => i.o.slice(11, 13) === "00"
       ? new Date(i.o.slice(0, 10) + "T12:00").toLocaleDateString("it-IT", {weekday: "short"}) + " " + i.o.slice(8, 10)
