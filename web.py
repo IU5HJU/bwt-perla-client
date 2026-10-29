@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from config import carica_config, salva_config, valida_mac
+import storico
 from tracker import (CICLI_CSV, QUARTI_CSV, Tracker, annulla_ultimo_rabbocco,
                      carica_rabbocchi, registra_rabbocco)
 
@@ -84,11 +85,15 @@ def riepilogo(data_dir, now: datetime | None = None,
         passo = len(sale) / MAX_PUNTI_SALE
         sale = [sale[int(i * passo)] for i in range(MAX_PUNTI_SALE)] + [sale[-1]]
 
-    litri_g: dict[str, int] = defaultdict(int)
-    litri_h: dict[str, int] = defaultdict(int)
-    for q in quarti:
-        litri_g[q["inizio_approx"][:10]] += int(q["litri"])
-        litri_h[q["inizio_approx"][:13]] += int(q["litri"])
+    # litri per ora e per giorno: i quarti d'ora della registrazione, completati con
+    # lo storico dell'apparecchio (`bwt_perla.py storico`) per il periodo precedente
+    def ultimo_storico(prefisso):
+        trovati = sorted(tr.dir.glob(prefisso + "_*.csv"))
+        return _leggi(trovati[-1]) if trovati else []
+
+    serie = storico.serie_litri(quarti, ultimo_storico("storico_quarti"),
+                                ultimo_storico("storico_giorni"))
+    litri_h = serie["ore"]
     rigen_g: dict[str, int] = defaultdict(int)
     black_g: dict[str, int] = defaultdict(int)
     for r in cicli:
@@ -99,11 +104,12 @@ def riepilogo(data_dir, now: datetime | None = None,
     giorni = []
     for i in range(GIORNI_MOSTRATI - 1, -1, -1):
         g = (oggi - timedelta(days=i)).isoformat()
-        giorni.append({"giorno": g, "litri": litri_g.get(g, 0),
-                       "rigenerazioni": rigen_g.get(g, 0),
-                       "blackout": black_g.get(g, 0)})
-    # i giorni prima della prima registrazione non hanno dati: si tolgono
-    primo = min(litri_g.keys() | rigen_g.keys(), default=None)
+        s_g = serie["giorni"].get(g)
+        rig = s_g["rigenerazioni"] if s_g and s_g["rigenerazioni"] is not None else rigen_g.get(g, 0)
+        giorni.append({"giorno": g, "litri": s_g["litri"] if s_g else 0,
+                       "rigenerazioni": rig, "blackout": black_g.get(g, 0)})
+    # i giorni prima del primo dato (registrazione o storico) non hanno dati: si tolgono
+    primo = min(serie["giorni"].keys() | rigen_g.keys(), default=None)
     giorni = [g for g in giorni if primo and g["giorno"] >= primo]
 
     ore = []

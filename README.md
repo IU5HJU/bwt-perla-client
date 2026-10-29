@@ -209,6 +209,16 @@ nuovo. La pagina e' in `http://`, quindi il telefono la tratta come un
 collegamento, non come un'app installabile. Le icone stanno in `web/icons/`
 (sorgenti `.svg` e `.png`) e sono servite da un elenco chiuso di file.
 
+**Storico nei grafici.** Se in `~/bwt-data/` ci sono i file di `storico` (gli ultimi
+per nome), i grafici li usano per il periodo precedente alla registrazione: i
+quarti d'ora si agganciano a quelli registrati dal vivo per **indice del registro**
+(lo stesso quarto ha lo stesso indice nei due file, quindi niente duplicati ne'
+scarti d'orario) e dove c'e' il dato dal vivo vince quello. Un giorno con tutti i
+96 quarti si somma dai quarti; un giorno a meta' prende il valore dello storico
+giornaliero, che da' anche le rigenerazioni del giorno. Per aggiornarlo basta
+rieseguire `storico`; il grafico per ora resta su 7 giorni e quello per giorno su
+30. Se la registrazione parte molto dopo l'importazione, nel mezzo manca il dato.
+
 La porta predefinita e' 8765 (`--port` per cambiarla): controlla prima che sia libera
 con `sudo ss -tlnp`.
 
