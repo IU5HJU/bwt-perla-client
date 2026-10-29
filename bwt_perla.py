@@ -12,6 +12,7 @@ Uso:
   python bwt_perla.py serve             # registrazione + pagina web in un solo processo
   python bwt_perla.py storico [MAC]     # legge la memoria dell'apparecchio -> CSV (ferma prima il servizio)
   python bwt_perla.py analisi-storico   # rilegge i CSV senza Bluetooth (--da AAAA-MM-GG: messa in servizio)
+  python bwt_perla.py analisi-calendario  # consumi contro feriali/festivi/ponti del calendario italiano
 
 Il protocollo e' ricostruito dal progetto GPL-3.0 Micka41/bwt-aqa-perla-ble:
 questo file ne eredita la licenza (GPLv3).
@@ -28,6 +29,7 @@ from pathlib import Path
 from bleak import BleakClient, BleakScanner
 
 from config import carica_config, salva_config, valida_mac
+import calendario
 import storico
 from tracker import GIORNI_USO, Tracker
 
@@ -562,6 +564,28 @@ def cmd_analisi_storico(data_dir, file_giorni, file_quarti, da):
         storico.riepilogo(storico.carica_giorni(pg), da), profilo)))
 
 
+def cmd_analisi_calendario(data_dir, file_giorni, da, patrono):
+    """Correlazione tra i consumi giornalieri e il calendario italiano."""
+    try:
+        calendario.parse_patrono(patrono)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    cartella = Tracker(data_dir).dir
+    pg = Path(file_giorni) if file_giorni else None
+    if pg is None:
+        trovati = sorted(cartella.glob("storico_giorni_*.csv"))
+        if not trovati:
+            raise SystemExit(f"Nessun file storico_giorni_*.csv in {cartella}: lancia prima 'storico'.")
+        pg = trovati[-1]
+    da = _messa_in_servizio(data_dir, da)
+    print(f"File: {pg.name}" + (f"; patrono: {patrono}" if patrono else "; senza patrono (--patrono MM-GG)"))
+    if da is None:
+        print("Suggerimento: indica la messa in servizio con --da AAAA-MM-GG, "
+              "altrimenti i giorni prima dell'installazione (a zero) entrano nel conto.")
+    print("\n".join(calendario.righe_correlazione(
+        calendario.correlazione(storico.carica_giorni(pg), da, patrono))))
+
+
 def cmd_salt_refill(kg_dopo, aggiunti, livello, used_regens, data_dir):
     try:
         r = Tracker(data_dir).rabbocco(kg_dopo, used_regens,
@@ -634,6 +658,10 @@ def main():
     st.add_argument("--giorni", type=int, default=MAX_GIORNI,
                     help=f"quanti giorni leggere (max {MAX_GIORNI})")
     st.add_argument("--da", help="messa in servizio AAAA-MM-GG: esclude i giorni precedenti")
+    ac = sub.add_parser("analisi-calendario", help="consumi contro il calendario italiano")
+    ac.add_argument("--giorni-file", help="storico_giorni_*.csv (predefinito: l'ultimo)")
+    ac.add_argument("--da", help="messa in servizio AAAA-MM-GG (si salva in config.json)")
+    ac.add_argument("--patrono", help="festa del santo patrono della citta', MM-GG (per esempio 12-07)")
     an = sub.add_parser("analisi-storico", help="rilegge i CSV di storico, senza Bluetooth")
     an.add_argument("--giorni-file", help="storico_giorni_*.csv (predefinito: l'ultimo)")
     an.add_argument("--quarti-file", help="storico_quarti_*.csv (predefinito: l'ultimo)")
@@ -667,6 +695,8 @@ def main():
             pass
     elif a.cmd == "storico":
         asyncio.run(cmd_storico(a.mac, a.data_dir, a.giorni, da=a.da))
+    elif a.cmd == "analisi-calendario":
+        cmd_analisi_calendario(a.data_dir, a.giorni_file, a.da, a.patrono)
     elif a.cmd == "analisi-storico":
         cmd_analisi_storico(a.data_dir, a.giorni_file, a.quarti_file, a.da)
     elif a.cmd == "salt-refill":
