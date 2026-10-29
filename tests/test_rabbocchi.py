@@ -289,6 +289,7 @@ class ServerTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.srv.shutdown()
+        cls.srv.server_close()
         web.Handler.pin = None
         cls.tmp.cleanup()
 

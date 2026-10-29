@@ -133,6 +133,37 @@ sudo systemctl enable --now bwt-perla
 I dati in `~/bwt-data/` restano quelli. Se non scegli l'addolcitore dalla
 pagina, puoi indicarlo nel servizio: `bwt_perla.py serve 03:12:00:2E:00:59`.
 
+## Storico dell'apparecchio (`storico`)
+
+L'apparecchio conserva i litri in due registri circolari: **30 giorni a quarti
+d'ora** (al litro) e fino a **~5 anni a giorni interi** (a multipli di 10 litri,
+con le rigenerazioni del giorno). Il comando li legge una volta, in sola lettura:
+
+```
+sudo systemctl stop bwt-perla        # stessa antenna della registrazione
+python bwt_perla.py storico          # qualche minuto; --giorni N per limitarlo
+sudo systemctl start bwt-perla
+```
+
+Scrive in `~/bwt-data/` `storico_giorni_AAAAMMGG.csv` (indice, inizio dello slot,
+data, litri, rigenerazioni, blackout) e `storico_quarti_AAAAMMGG.csv`, e stampa
+media e mediana, i giorni a zero e la **media per giorno della settimana**.
+
+**Come si datano i giorni.** Il giorno dell'apparecchio non comincia a mezzanotte
+ma a un'ora sua, e l'apparecchio non ha un orologio affidabile. Negli ultimi 30
+giorni i due registri contengono gli stessi litri: si cerca l'ora di cambio giorno
+per cui i giorni interi coincidono meglio con la somma dei quarti d'ora, e da li'
+si etichetta tutto lo storico (ogni giorno dura 24 ore; la data e' quella
+dell'inizio dello slot, dove cade la sera). Il comando dice se la calibrazione e'
+affidabile o incerta. Se l'apparecchio cambia giorno in piena notte, quando non si
+usa acqua, l'ora esatta non si ricava ma l'intervallo si, e le date non cambiano.
+
+**Limiti.** Gli orari dei quarti sono approssimati come nella registrazione
+normale; i giorni sono a multipli di 10 L; piu' si va indietro piu' la datazione si
+fida dell'ipotesi di slot da 24 ore senza interruzioni; non so quanti giorni
+validi contenga davvero un apparecchio vecchio. Non e' stato ancora provato su
+un apparecchio vero.
+
 ## Pagina web (rete locale)
 
 ```

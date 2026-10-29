@@ -211,6 +211,7 @@ class PaginaTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.srv.shutdown()
+        cls.srv.server_close()
         web.Handler.ble = None
         web.Handler.pin = None
         cls.tmp.cleanup()

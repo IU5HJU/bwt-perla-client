@@ -26,6 +26,7 @@ class StaticiTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.srv.shutdown()
+        cls.srv.server_close()
         cls.tmp.cleanup()
 
     def get(self, path):
