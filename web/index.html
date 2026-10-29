@@ -157,7 +157,7 @@
     <div class="intest">
       <h2 id="t-ore">Consumo per ora (L)</h2>
       <div class="seg" role="group" aria-label="Periodo del grafico orario">
-        <button type="button" id="v-24" aria-pressed="false">24 ore</button>
+        <button type="button" id="v-24" aria-pressed="false">Oggi</button>
         <button type="button" id="v-7g" aria-pressed="true">7 giorni</button>
       </div>
     </div>
@@ -313,8 +313,8 @@ function bars(svg, items, labelFn, W, H, evento, opz) {
     svg.appendChild(el("rect", {x: L + i * w + w * .12, y: H - B - h, width: w * .76,
                                 height: Math.max(h, 0), rx: 2, class: "barra-g"}));
     // area sensibile a tutta altezza: con il dito una barra bassa o sottile non si centra
-    svg.appendChild(el("rect", {x: L + i * w, y: T, width: w, height: H - T - B, class: "hit",
-                                "data-tip": it.tip}));
+    if (it.tip) svg.appendChild(el("rect", {x: L + i * w, y: T, width: w, height: H - T - B, class: "hit",
+                                            "data-tip": it.tip}));
     if (evento && it.ev) svg.appendChild(el("circle", {cx: L + i * w + w / 2, cy: H - B + 8, r: 3, class: "evento"}));
   });
   if (opz.sep) items.forEach((it, i) => {
@@ -580,18 +580,27 @@ try { vista = localStorage.getItem("vistaOre") === "24" ? "24" : "7g"; } catch (
 
 function disegnaOre(d) {
   const sett = vista === "7g";
-  const ore = sett ? d.ore : d.ore.slice(-24);
   const gg = o => o.slice(8, 10) + "/" + o.slice(5, 7);
+  // «Oggi»: la giornata intera da 00:00 a 23:59, con le ore a venire vuote
+  const oggi = d.ora.slice(0, 10);
+  const perOra = {};
+  for (const o of d.ore) perOra[o.ora] = o.litri;
+  const ore = sett ? d.ore : Array.from({length: 24}, (_, h) => {
+    const k = oggi + "T" + String(h).padStart(2, "0");
+    return {ora: k, litri: perOra[k] || 0, futura: k > d.ora.slice(0, 13), incorso: k === d.ora.slice(0, 13)};
+  });
   bars($("g-ore"), ore.map(o => ({
     v: o.litri, o: o.ora,
-    tip: dataIt(o.ora) + " " + o.ora.slice(11, 13) + ":00 – " + o.litri + " L"
+    tip: o.futura ? "" : dataIt(o.ora) + " " + o.ora.slice(11, 13) + ":00 – " + o.litri + " L" + (o.incorso ? " (in corso)" : "")
   })), sett
     ? i => i.o.slice(11, 13) === "00"
       ? new Date(i.o.slice(0, 10) + "T12:00").toLocaleDateString("it-IT", {weekday: "short"}) + " " + i.o.slice(8, 10)
       : ""
-    : i => i.o.slice(11, 13),
-    640, 180, false, sett ? {tutte: true, sep: i => i.o.slice(11, 13) === "00"} : {});
-  $("t-ore").textContent = "Consumo per ora, " + (sett ? "ultimi 7 giorni" : "ultime 24 ore") + " (L)";
+    : i => +i.o.slice(11, 13) % 3 === 0 ? i.o.slice(11, 13) : "",
+    640, 180, false, sett ? {tutte: true, sep: i => i.o.slice(11, 13) === "00"}
+                          : {tutte: true, sep: i => i.o.slice(11, 13) === "12"});
+  $("t-ore").textContent = sett ? "Consumo per ora, ultimi 7 giorni (L)"
+    : "Consumo per ora, oggi " + dataIt(oggi).slice(0, 5) + " (L)";
   $("v-24").setAttribute("aria-pressed", String(!sett));
   $("v-7g").setAttribute("aria-pressed", String(sett));
   const tot = ore.reduce((a, o) => a + o.litri, 0);
