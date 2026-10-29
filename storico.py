@@ -250,6 +250,71 @@ def righe_riepilogo(r: dict, profilo: dict | None = None) -> list[str]:
     return out
 
 
+def unisci_quarti(live: list[dict], storico_q: list[dict]) -> list[tuple[datetime, int]]:
+    """Quarti d'ora della registrazione + quelli dello storico, come (inizio, litri).
+
+    Lo stesso quarto ha lo stesso indice assoluto nel registro dell'apparecchio in
+    entrambi i file: si usa quello per agganciarli. Dove c'e' il dato dal vivo vince
+    quello; i quarti piu' vecchi dello storico prendono l'orario dal primo quarto
+    dal vivo che ritrovano, contando a ritroso di 15 minuti (stessa approssimazione,
+    quindi nessuno scarto tra i due). Se non c'e' alcun aggancio si tengono gli
+    orari dello storico.
+    """
+    out: dict[datetime, int] = {}
+    live_idx = set()
+    for r in live:
+        out[datetime.fromisoformat(r["inizio_approx"])] = int(r["litri"])
+        live_idx.add(int(r["idx"]))
+    if not storico_q:
+        return sorted(out.items())
+    pos = {int(r["indice"]): j for j, r in enumerate(storico_q)}
+    ancora = None
+    for r in live:                       # in ordine cronologico: il primo agganciabile
+        if int(r["idx"]) in pos:
+            ancora = (pos[int(r["idx"])], datetime.fromisoformat(r["inizio_approx"]))
+            break
+    for j, r in enumerate(storico_q):
+        if int(r["indice"]) in live_idx:
+            continue
+        t = (ancora[1] + QUARTO * (j - ancora[0]) if ancora
+             else datetime.fromisoformat(r["inizio_approx"]))
+        out.setdefault(t, int(r["litri"]))
+    return sorted(out.items())
+
+
+def serie_litri(live: list[dict], storico_q: list[dict], storico_g: list[dict]) -> dict:
+    """Litri per ora e per giorno, uniti.
+
+    - "ore": {"AAAA-MM-GGTHH": litri} dai quarti d'ora uniti;
+    - "giorni": {"AAAA-MM-GG": {"litri", "rigenerazioni"}}: un giorno con tutti i 96
+      quarti si somma dai quarti; altrimenti, se lo storico giornaliero lo ha (il
+      primo giorno a meta', oppure quello che non e' ancora completo nei quarti),
+      si usa quello; altrimenti la somma parziale. `rigenerazioni` e' None dove lo
+      storico giornaliero non c'e'.
+    """
+    quarti = unisci_quarti(live, storico_q)
+    ore: dict[str, int] = defaultdict(int)
+    giorno_q: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for t, litri in quarti:
+        ore[t.isoformat(timespec="hours")] += litri
+        g = giorno_q[t.date().isoformat()]
+        g[0] += litri
+        g[1] += 1
+    giorni_s = {r["data"]: r for r in storico_g}
+    giorni: dict[str, dict] = {}
+    for d in sorted(giorno_q.keys() | giorni_s.keys()):
+        somma, n = giorno_q.get(d, (0, 0))
+        h = giorni_s.get(d)
+        if n >= QUARTI_GIORNO:
+            litri = somma
+        elif h is not None:
+            litri = int(h["litri"])
+        else:
+            litri = somma
+        giorni[d] = {"litri": litri, "rigenerazioni": int(h["rigenerazioni"]) if h else None}
+    return {"ore": dict(ore), "giorni": giorni}
+
+
 def scrivi_csv(path: Path, colonne: list[str], righe: list[dict]) -> None:
     with Path(path).open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=colonne, extrasaction="ignore")
