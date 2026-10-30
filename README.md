@@ -284,6 +284,15 @@ dallo stesso sito; la ricerca mostra anche dispositivi altrui, ma ci si
 collega solo a quello scelto da te. Per l'avvio al boot della sola pagina:
 `deploy/bwt-perla-web.service`. L'API JSON e' su `/api/riepilogo`.
 
+**Base ed Esperto.** Il menù a tendina in alto a destra sceglie la modalita' (si ricorda
+nel browser; di partenza e' **Base**). **Base** sta in una sola schermata di telefono, senza
+scorrere: sale con percentuale e pulsante «Rabbocco sale», giorni alla riserva, consumo di
+oggi, rigenerazioni, stato delle perdite e tre grafici (giorni, ore di oggi, sale nel tempo)
+che si dividono lo spazio rimasto; niente descrizioni dei calcoli, niente tabella delle
+notti, niente impostazioni, storico rabbocchi e dati tecnici. Gli avvisi (sale, perdite,
+lettura ferma) restano visibili. **Esperto** e' la pagina completa di prima. Se non c'e' ancora
+un addolcitore configurato, in Base un avviso rimanda a «Esperto» per le impostazioni.
+
 **Descrizione dei valori.** Passando il mouse su una barra dei grafici (o sulle
 notti della card «Perdite») compare una finestrella (*tooltip*) con data e litri; da
 telefono basta **toccare** la barra (si chiude con un secondo tocco, toccando altrove
