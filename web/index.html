@@ -106,13 +106,53 @@
   .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
   #regen-dett { white-space: pre-line; }
   .vuoto { color: var(--muted); padding: 24px 0; text-align: center; }
+  .solo-base { display: none; }
+  header { flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
+  header .tit { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 16px; min-width: 0; }
+  #modo { flex: none; }
+  #modo { width: auto; padding: 4px 8px; font-size: .85rem; }
+
+  /* Modo base: tutto in una schermata di telefono, senza spiegazioni e senza le sezioni da esperto */
+  body.base .solo-esperto { display: none !important; }
+  body.base .solo-base { display: inline; }
+  body.base main { padding: 8px 10px; }
+  body.base header { flex-wrap: nowrap; align-items: center; margin-bottom: 6px; gap: 8px; }
+  body.base header .tit { flex-direction: column; align-items: flex-start; gap: 0; }
+  body.base h1 { font-size: 1.1rem; }
+  body.base .sub { font-size: .75rem; }
+  body.base .avviso { padding: 6px 10px; margin-bottom: 6px; font-size: .8rem; }
+  body.base .griglia { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  body.base .card { padding: 8px 10px; border-radius: 10px; }
+  body.base h2 { font-size: .75rem; margin: 0 0 2px; color: var(--muted); font-weight: 600; }
+  body.base .grande { font-size: 1.35rem; }
+  body.base .unit { font-size: .75rem; }
+  body.base .badge { font-size: .72rem; padding: 1px 8px; margin: 0; }
+  body.base .griglia .card:nth-child(1) { grid-column: 1 / -1; display: grid;
+      grid-template-columns: 1fr auto; align-items: center; column-gap: 8px; }
+  body.base .griglia .card:nth-child(1) h2 { grid-area: 1 / 1; }
+  body.base .griglia .card:nth-child(1) .badge { grid-area: 1 / 2; justify-self: end; }
+  body.base .griglia .card:nth-child(1) .grande { grid-area: 2 / 1; font-size: 1.7rem; }
+  body.base .griglia .card:nth-child(1) .azioni { grid-area: 2 / 2; margin: 0; }
+  body.base .griglia .card:nth-child(1) .barra { grid-area: 3 / 1 / 4 / 3; margin: 4px 0 0; height: 8px; }
+  body.base .griglia .card:nth-child(1) button { padding: 6px 12px; font-size: .85rem; }
+  body.base .griglia .card:nth-child(5) { grid-column: 1 / -1; display: flex;
+      align-items: center; gap: 8px; padding: 6px 10px; }
+  body.base section.card { margin-top: 6px; padding: 6px 10px 2px; }
+  body.base section.card h2 { margin: 0; }
+  body.base svg text { font-size: 10px; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Addolcitore BWT Perla</h1>
-    <span class="sub" id="aggiornato">in caricamento…</span>
+    <div class="tit">
+      <h1>Addolcitore BWT Perla</h1>
+      <span class="sub" id="aggiornato">in caricamento…</span>
+    </div>
+    <select id="modo" aria-label="Modo di visualizzazione">
+      <option value="base">Base</option>
+      <option value="esperto">Esperto</option>
+    </select>
   </header>
   <div id="avviso" class="avviso" hidden></div>
   <div id="avviso-sale" class="avviso" hidden></div>
@@ -124,28 +164,28 @@
       <span class="badge b-nd" id="sale-badge">–</span>
       <div class="grande"><span id="sale-pct">–</span><span class="unit">%</span></div>
       <div class="barra"><div id="sale-barra" style="width:0"></div></div>
-      <div class="muted" id="sale-dett">Nessun rabbocco registrato</div>
+      <div class="muted solo-esperto" id="sale-dett">Nessun rabbocco registrato</div>
       <div class="azioni"><button class="primario" id="btn-rabbocco">Rabbocco sale</button></div>
     </div>
     <div class="card">
       <h2>Alla riserva</h2>
       <div class="grande"><span id="autonomia">–</span><span class="unit"> giorni</span></div>
-      <div class="muted" id="autonomia-dett"></div>
+      <div class="muted solo-esperto" id="autonomia-dett"></div>
     </div>
     <div class="card">
       <h2>Consumo oggi</h2>
       <div class="grande"><span id="oggi">–</span><span class="unit"> L</span></div>
-      <div class="muted" id="oggi-dett"></div>
+      <div class="muted solo-esperto" id="oggi-dett"></div>
     </div>
     <div class="card">
       <h2>Rigenerazioni</h2>
-      <div class="grande"><span id="regen">–</span><span class="unit"> negli ultimi 30 giorni</span></div>
-      <div class="muted" id="regen-dett"></div>
+      <div class="grande"><span id="regen">–</span><span class="unit solo-esperto"> negli ultimi 30 giorni</span><span class="unit solo-base"> in 30 g</span></div>
+      <div class="muted solo-esperto" id="regen-dett"></div>
     </div>
     <div class="card">
-      <h2>Perdite <span class="muted">(sperimentale)</span></h2>
+      <h2>Perdite <span class="muted solo-esperto">(sperimentale)</span></h2>
       <span class="badge b-nd" id="perd-badge">–</span>
-      <div class="muted" id="perd-dett"></div>
+      <div class="muted solo-esperto" id="perd-dett"></div>
     </div>
   </div>
 
@@ -156,15 +196,15 @@
   <section class="card">
     <div class="intest">
       <h2 id="t-ore">Consumo per ora (L)</h2>
-      <div class="seg" role="group" aria-label="Periodo del grafico orario">
+      <div class="seg solo-esperto" role="group" aria-label="Periodo del grafico orario">
         <button type="button" id="v-24" aria-pressed="false">Oggi</button>
         <button type="button" id="v-7g" aria-pressed="true">7 giorni</button>
       </div>
     </div>
     <svg id="g-ore" viewBox="0 0 640 180" role="img" aria-label="Consumo orario"></svg>
-    <div class="muted" id="ore-tot"></div>
+    <div class="muted solo-esperto" id="ore-tot"></div>
   </section>
-  <section class="card" id="sez-perdite" hidden>
+  <section class="card solo-esperto" id="sez-perdite" hidden>
     <h2>Consumo notturno, ultime notti</h2>
     <div class="muted" id="perd-spiega"></div>
     <div class="notti" id="perd-notti"></div>
@@ -176,7 +216,7 @@
     <svg id="g-sale" viewBox="0 0 640 180" role="img" aria-label="Sale stimato"></svg>
   </section>
 
-  <details id="imp">
+  <details id="imp" class="solo-esperto">
     <summary>Impostazioni · addolcitore</summary>
     <p class="muted" id="imp-attuale"></p>
     <p class="muted" id="imp-nota" hidden>La ricerca Bluetooth è disponibile solo se il
@@ -195,18 +235,18 @@
     viene scelto solo da te: la verifica legge soltanto, non modifica nulla.</p>
   </details>
 
-  <details>
+  <details class="solo-esperto">
     <summary>Storico rabbocchi</summary>
     <table class="tab" id="tab-rabbocchi"></table>
     <div class="azioni"><button class="pericolo" id="btn-annulla">Annulla ultimo rabbocco</button></div>
     <div class="errore" id="err-annulla"></div>
   </details>
 
-  <details>
+  <details class="solo-esperto">
     <summary>Dati tecnici dell'ultima lettura</summary>
     <pre id="tecnici"></pre>
   </details>
-  <p class="muted">Il sale è una stima: kg dopo il rabbocco meno rigenerazioni × consumo per
+  <p class="muted solo-esperto">Il sale è una stima: kg dopo il rabbocco meno rigenerazioni × consumo per
   rigenerazione (misurato sui tuoi rabbocchi). L'apparecchio riporta sempre 0 g. Gli orari dei quarti d'ora sono
   approssimati.</p>
 </main>
@@ -252,6 +292,28 @@ function el(tag, attrs, text) {
   if (text !== undefined) e.textContent = text;
   return e;
 }
+// Modo di visualizzazione: base (una schermata, senza spiegazioni) o esperto (tutto).
+let modo = "base";
+try { modo = localStorage.getItem("modo") === "esperto" ? "esperto" : "base"; } catch (e) {}
+const inBase = () => modo === "base";
+document.body.classList.toggle("base", inBase());
+$("modo").value = modo;
+$("modo").addEventListener("change", e => {
+  modo = e.target.value === "esperto" ? "esperto" : "base";
+  try { localStorage.setItem("modo", modo); } catch (err) {}
+  document.body.classList.toggle("base", inBase());
+  if (window.__d) mostra(window.__d);
+});
+// In base i grafici si dividono lo spazio rimasto sotto le schede, per stare in una schermata.
+function altezzaGrafici() {
+  if (!inBase()) return null;
+  const g = document.querySelector(".griglia").getBoundingClientRect();
+  const libero = window.innerHeight - (g.bottom + window.scrollY) - 3 * 42 - 12;
+  return Math.max(64, Math.min(150, Math.floor(libero / 3)));
+}
+let hGrafici = null;
+const alt = predefinita => hGrafici || predefinita;
+
 const fmt = n => (n === null || n === undefined || n === "") ? "–"
   : Number(n).toLocaleString("it-IT");
 
@@ -423,16 +485,21 @@ function mostraPerdite(p) {
 
 function mostra(d) {
   const u = d.ultima;
-  $("aggiornato").textContent = u
-    ? "Ultima lettura: " + new Date(u.timestamp).toLocaleString("it-IT") : "Nessuna lettura";
+  const lettura = u ? new Date(u.timestamp) : null;
+  $("aggiornato").textContent = !u ? "Nessuna lettura"
+    : inBase() ? "Lettura " + (lettura.toDateString() === new Date().toDateString()
+        ? lettura.toLocaleTimeString("it-IT", {hour: "2-digit", minute: "2-digit"})
+        : lettura.toLocaleString("it-IT", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}))
+    : "Ultima lettura: " + lettura.toLocaleString("it-IT");
 
   const av = $("avviso");
   if (!u) {
     av.hidden = false;
     av.textContent = (d.ble_disponibile && !d.config.mac)
-      ? "Nessun addolcitore configurato: apri «Impostazioni» e cerca l'addolcitore."
+      ? (inBase() ? "Nessun addolcitore configurato: passa a «Esperto» (in alto a destra) e apri «Impostazioni»."
+                  : "Nessun addolcitore configurato: apri «Impostazioni» e cerca l'addolcitore.")
       : "Nessun dato: avvia la registrazione con «python bwt_perla.py serve» (o «log»).";
-    if (d.ble_disponibile && !d.config.mac && !$("imp").open) {
+    if (d.ble_disponibile && !d.config.mac && !inBase() && !$("imp").open) {
       $("imp").open = true; $("imp").scrollIntoView({block: "center"});
     }
   } else if (d.eta_ultima_lettura_min > 45) {
@@ -547,16 +614,17 @@ function mostra(d) {
   parti.push("acqua degli ultimi 7 giorni: " + fmt(rg.litri_7g) + " L");
   $("regen-dett").textContent = parti.join("\n");
 
+  hGrafici = altezzaGrafici();
   bars($("g-giorni"), d.giorni.map(g => ({
     v: g.litri, ev: g.rigenerazioni > 0,
     tip: dataIt(g.giorno) + ": " + g.litri + " L" + (g.rigenerazioni ? " · rigenerazione" : ""),
     g: g.giorno
-  })), i => i.g.slice(8, 10) + "/" + i.g.slice(5, 7), 640, 200, true);
+  })), i => i.g.slice(8, 10) + "/" + i.g.slice(5, 7), 640, alt(200), true);
 
   window.__d = d; disegnaOre(d);
 
   linea($("g-sale"), d.sale.filter(s => s.g !== null)
-    .map(s => ({t: new Date(s.t).getTime(), kg: s.g / 1000})), 640, 180,
+    .map(s => ({t: new Date(s.t).getTime(), kg: s.g / 1000})), 640, alt(180),
     a ? a.riserva_g / 1000 : 0);
 
   $("tecnici").textContent = u ? [
@@ -579,7 +647,7 @@ let vista = "7g";
 try { vista = localStorage.getItem("vistaOre") === "24" ? "24" : "7g"; } catch (e) {}
 
 function disegnaOre(d) {
-  const sett = vista === "7g";
+  const sett = vista === "7g" && !inBase();     // in base il grafico orario e' sempre «Oggi»
   const gg = o => o.slice(8, 10) + "/" + o.slice(5, 7);
   // «Oggi»: la giornata intera da 00:00 a 23:59, con le ore a venire vuote
   const oggi = d.ora.slice(0, 10);
@@ -597,7 +665,7 @@ function disegnaOre(d) {
       ? new Date(i.o.slice(0, 10) + "T12:00").toLocaleDateString("it-IT", {weekday: "short"}) + " " + i.o.slice(8, 10)
       : ""
     : i => +i.o.slice(11, 13) % 3 === 0 ? i.o.slice(11, 13) : "",
-    640, 180, false, sett ? {tutte: true, sep: i => i.o.slice(11, 13) === "00"}
+    640, alt(180), false, sett ? {tutte: true, sep: i => i.o.slice(11, 13) === "00"}
                           : {tutte: true, sep: i => i.o.slice(11, 13) === "12"});
   $("t-ore").textContent = sett ? "Consumo per ora, ultimi 7 giorni (L)"
     : "Consumo per ora, oggi " + dataIt(oggi).slice(0, 5) + " (L)";
