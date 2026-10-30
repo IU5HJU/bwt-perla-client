@@ -14,13 +14,13 @@
   :root {
     --bg: #f5f6f8; --card: #ffffff; --ink: #1c2230; --muted: #667085;
     --line: #e4e7ec; --accent: #1f6feb; --warn: #b54708; --warn-bg: #fff4e5;
-    --ok: #067647; --bad: #b42318;
+    --ok: #067647; --bad: #b42318; --regen: #0e9384;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #12151c; --card: #1b2029; --ink: #e8ebf2; --muted: #98a2b3;
       --line: #2a3140; --accent: #5b9dff; --warn: #fdb022; --warn-bg: #3a2c0f;
-      --ok: #47cd89; --bad: #f97066;
+      --ok: #47cd89; --bad: #f97066; --regen: #2ed3b7;
     }
   }
   * { box-sizing: border-box; }
@@ -62,7 +62,7 @@
          box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
   #tip[hidden] { display: none; }
   .linea { fill: none; stroke: var(--accent); stroke-width: 2; }
-  .evento { fill: var(--bad); }
+  .evento { fill: var(--regen); }   /* rigenerazione: un fatto normale, non un problema */
   details { margin-top: 12px; }
   summary { cursor: pointer; color: var(--muted); }
   pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
