@@ -15,13 +15,14 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAM
 STUB_SYSTEMCTL = """#!/bin/sh
 # systemctl finto: stato in $STUB_DIR
 case "$1" in
-  cat) [ -f "$STUB_DIR/senza_servizio" ] && exit 1; exit 0 ;;
+  cat) [ -f "$STUB_DIR/senza_servizio" ] && exit 1; [ -f "$STUB_DIR/unit" ] && cat "$STUB_DIR/unit"; exit 0 ;;
   show) cat "$STUB_DIR/attivo_da" ;;
   is-active) [ -f "$STUB_DIR/non_parte" ] && exit 3; exit 0 ;;
   restart) echo "riavviato" >> "$STUB_DIR/azioni"; date -u "+%a %Y-%m-%d %H:%M:%S UTC" > "$STUB_DIR/attivo_da" ;;
 esac
 """
 STUB_CURL = """#!/bin/sh
+echo "$@" >> "$STUB_DIR/url"
 [ -f "$STUB_DIR/pagina_giu" ] && exit 22
 echo ok
 """
@@ -92,6 +93,29 @@ class AggiornaTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("nulla da fare", r.stdout)
         self.assertEqual(self.riavvii(), 0)
+
+    def url_provati(self):
+        f = self.stub / "url"
+        return f.read_text() if f.exists() else ""
+
+    def test_porta_presa_dal_servizio(self):
+        (self.stub / "unit").write_text("[Service]\nExecStart=/x/python bwt_perla.py serve --port 8099\n")
+        r = self.lancia("--solo-riavvia")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("localhost:8099/healthz", self.url_provati())
+
+    def test_porta_di_default_senza_indicazioni(self):
+        r = self.lancia("--solo-riavvia")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("localhost:8765/healthz", self.url_provati())
+
+    def test_variabile_porta_vince_sul_servizio(self):
+        (self.stub / "unit").write_text("ExecStart=x serve --port 8099\n")
+        env = {"PATH": f"{self.stub}:{os.environ['PATH']}", "STUB_DIR": str(self.stub),
+               "PYTHON": sys.executable, "PORTA": "9001"}
+        r = esegui(["bash", str(self.pi / "aggiorna.sh"), "--solo-riavvia"], self.pi, env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("localhost:9001/healthz", self.url_provati())
 
     def test_aggiorna_prova_e_riavvia(self):
         self.pubblica()
