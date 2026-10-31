@@ -7,6 +7,37 @@ Il protocollo è ricostruito dal progetto
 [Micka41/bwt-aqa-perla-ble](https://github.com/Micka41/bwt-aqa-perla-ble)
 (GPL-3.0); questo repository ne eredita la licenza.
 
+## Installazione rapida (Raspberry)
+
+Serve un Raspberry con Raspberry Pi OS collegato alla rete (il Bluetooth e' integrato nei
+Pi 3, 4, 5 e Zero W; altrimenti una chiavetta USB) e l'addolcitore a pochi metri.
+
+```
+sudo apt update && sudo apt install -y git
+git clone https://github.com/IU5HJU/bwt-perla-client.git
+cd bwt-perla-client
+./installa.sh
+```
+
+`installa.sh` dice cosa sta per fare e chiede conferma (`--si` per non chiedere): installa i
+pacchetti di sistema che mancano (`python3-venv`, `bluez`, `rfkill`, `curl`), crea l'ambiente
+Python `.venv` con le dipendenze, esegue la prova interna, accende il Bluetooth, installa il
+servizio `bwt-perla` (parte da solo a ogni accensione) e controlla che la pagina risponda.
+Alla fine stampa l'indirizzo, per esempio `http://192.168.1.50:8765/`. Se la porta 8765 e'
+gia' usata da un altro programma sceglie la prima libera; con `--porta 8080` la scegli tu.
+Puo' essere rilanciato quando vuoi: tiene la porta di prima e riavvia il servizio.
+
+Poi, una volta sola, dalla pagina (telefono o computer sulla stessa rete):
+
+1. chiudi l'app BWT sul telefono (con l'app aperta l'addolcitore non e' visibile);
+2. in alto a destra scegli **Esperto**, apri **Impostazioni** e premi **Cerca addolcitore**;
+3. premi **Verifica** sul tuo apparecchio e poi **Usa questo addolcitore**;
+4. torna a **Base**: dopo qualche minuto compaiono le prime letture.
+
+Per aggiornare in seguito: `./aggiorna.sh` (scarica, prova e riavvia il servizio).
+Per togliere il servizio: `./installa.sh --disinstalla` (la cartella e i dati in
+`~/bwt-data` restano). Senza servizio, solo programma e dipendenze: `--senza-servizio`.
+
 ## Uso
 
 ```
@@ -128,8 +159,8 @@ Provato solo su **AQAPERLA 5 BIO PR IT, firmware A22X V1.18**: altri modelli o
 firmware potrebbero non funzionare; la verifica avvisa se il firmware non e'
 tra quelli provati.
 
-Per l'avvio al boot: `deploy/bwt-perla.service` (un solo servizio). Chi usa
-gia' i due servizi separati puo' passare cosi':
+Per l'avvio al boot ci pensa `installa.sh`; a mano si usa `deploy/bwt-perla.service` (un solo
+servizio). Chi usa gia' i due servizi separati puo' passare cosi':
 
 ```
 sudo systemctl disable --now bwt-perla-log bwt-perla-web

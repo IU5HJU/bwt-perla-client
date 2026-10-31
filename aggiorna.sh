@@ -8,7 +8,7 @@
 #   ./aggiorna.sh --controlla   solo controlla: dice se serve aggiornare o riavviare
 #   ./aggiorna.sh --solo-riavvia  riavvia il servizio senza scaricare nulla
 #
-# Variabili: SERVIZIO (predefinito bwt-perla), PORTA della pagina (predefinita 8765),
+# Variabili: SERVIZIO (predefinito bwt-perla), PORTA della pagina (predefinita: quella del servizio, altrimenti 8765),
 # PYTHON (predefinito .venv/bin/python se c'e', altrimenti python3).
 #
 # Non tocca mai le modifiche locali non salvate, non cambia ramo e non crea merge:
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 SERVIZIO="${SERVIZIO:-bwt-perla}"
-PORTA="${PORTA:-8765}"
+PORTA="${PORTA:-}"      # se vuota: quella del servizio (--port nel file .service), altrimenti 8765
 CONTROLLA=0
 SOLO_RIAVVIA=0
 
@@ -52,6 +52,10 @@ SUDO=""
 [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 HA_SERVIZIO=0
 systemctl cat "$SERVIZIO" > /dev/null 2>&1 && HA_SERVIZIO=1
+if [ -z "$PORTA" ] && [ "$HA_SERVIZIO" -eq 1 ]; then
+    PORTA="$(systemctl cat "$SERVIZIO" 2> /dev/null | grep -o -- '--port [0-9]*' | head -1 | awk '{print $2}' || true)"
+fi
+PORTA="${PORTA:-8765}"
 
 secondi_codice() {      # il file di codice modificato piu' di recente
     git ls-files '*.py' 'web/*' | xargs -r stat -c %Y | sort -n | tail -1
